@@ -1,0 +1,20 @@
+chrome*
+google*
+udot_project
+data2
+*Highway-Rail Grade Crossing Incident Data (Form 57).csv
+*NTAD_Railroad_Grade_Crossings*.csv
+web_screenshot.png
+sample_crossing.jpg
+inspect_news.py
+df_news.csv
+backup*
+error*
+aws*
+mapillary
+dict_api_key.json
+sandbox.py
+*(old)*
+*.pt
+*.ts
+sam-hq
