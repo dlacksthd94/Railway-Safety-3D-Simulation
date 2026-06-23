@@ -161,7 +161,7 @@ def prepare_df_record(cfg):
 
 
 def prepare_df_crossing(cfg):
-    df_crossing = pd.read_csv(cfg.path.df_crossing)
+    df_crossing = pd.read_csv(cfg.path.df_crossing, low_memory=False)
     assert df_crossing['CROSSING'].is_unique
     df_crossing = df_crossing[df_crossing['STATENAME'].str.title().isin(cfg.scrp.target_states)]
     # df_crossing = df_crossing[df_crossing['COUNTYNAME'].str.title().isin(cfg.scrp.target_counties)]
@@ -171,7 +171,7 @@ def prepare_df_crossing(cfg):
     # df_crossing = df_crossing[df_crossing['XPURPOSE'] == 1]
     df_crossing['EFFDATE'] = df_crossing['EFFDATE'].astype(str).str.zfill(6)
     df_crossing['EFFDATE'] = pd.to_datetime(df_crossing['EFFDATE'], format='%y%m%d')
-    df_crossing[['REVISIONDA', 'LASTUPDATE']] = df_crossing[['REVISIONDA', 'LASTUPDATE']].apply(pd.to_datetime)
+    df_crossing[['REVISIONDA', 'LASTUPDATE']] = df_crossing[['REVISIONDA', 'LASTUPDATE']].apply(lambda col: pd.to_datetime(col, format='%m/%d/%Y %H:%M:%S AM').dt.date)
     
     ### EDA
     # pprint(df_crossing[df_crossing['TYPEXING'] == '3'][df_crossing['CITYNAME'] == 'RIVERSIDE']
@@ -205,6 +205,7 @@ def prepare_df_image(cfg):
 
 def prepare_df_image_seq(cfg):
     df_image_seq = pd.read_csv(cfg.path.df_image_seq)
+    df_image_seq['img_ids'] = df_image_seq['img_ids'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else [])
     return df_image_seq
 
 

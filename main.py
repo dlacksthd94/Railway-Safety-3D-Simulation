@@ -13,8 +13,8 @@ print('------------Configuration DONE!!------------')
 
 
 # ############### scrape crossing images from mapillary (ONLY ONE-TIME TASK)
-df_image = scrape_image(cfg)
-df_image_seq = scrape_image_seq(cfg)
+# df_image = scrape_image(cfg, download=False)
+df_image_seq = scrape_image_seq(cfg, download=False)
 
 # print('------------Scraping Images DONE!!------------')
 

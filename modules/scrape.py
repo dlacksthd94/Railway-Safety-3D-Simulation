@@ -22,6 +22,9 @@ from datetime import datetime
 import ast
 
 
+IMG_POS_ZFILL = 4
+
+
 class ScrapeImage:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -29,20 +32,28 @@ class ScrapeImage:
         self.img_search_fields = ','.join(self.cfg.scrp.img_search_fields)
         self.img_detail_fields = ','.join(self.cfg.scrp.img_detail_fields)
         self.df_image = None
+        self.img_cols = self.__set_col_list()
+
+    def __set_col_list(self):
+        """
+        Set up the columns for the image dataframes
+        """
+        img_cols = list(self.cfg.scrp.img_detail_fields)
+        # img_cols.remove('camera_parameters')
+        # img_cols.extend(['focal_length', 'k1', 'k2'])
+        img_cols.remove('geometry')
+        img_cols.remove('computed_geometry')
+        img_cols.extend(['lon', 'lat', 'computed_lon', 'computed_lat', 'dist', 'computed_dist'])
+        rename_map = {'id': 'img_id', 'sequence': 'seq_id'}
+        img_cols = [rename_map.get(col, col) for col in img_cols]
+        img_cols = ['crossing_id'] + img_cols        
+        return img_cols
     
     def load_df_image(self):
         if os.path.exists(self.cfg.path.df_image):
             df_image = prepare_df_image(self.cfg)
         else:
-            cols = list(self.cfg.scrp.img_detail_fields)
-            # cols.remove('camera_parameters')
-            # cols.extend(['focal_length', 'k1', 'k2'])
-            cols.remove('geometry')
-            cols.remove('computed_geometry')
-            cols.extend(['lon', 'lat', 'computed_lon', 'computed_lat', 'dist', 'computed_dist'])
-            cols = ['crossing_id'] + cols
-            df_image = pd.DataFrame(columns=cols)
-            df_image = df_image.rename(columns={'id': 'img_id', 'sequence': 'seq_id'})
+            df_image = pd.DataFrame(columns=self.img_cols)
             df_image.to_csv(self.cfg.path.df_image, index=False)
         return df_image
     
@@ -50,12 +61,11 @@ class ScrapeImage:
         if os.path.exists(self.cfg.path.df_image_seq):
             df_image_seq = prepare_df_image_seq(self.cfg)
         else:
-            cols = ['crossing_id', 'seq_id', 'img_pos', 'img_id', 'bearing']
-            df_image_seq = pd.DataFrame(columns=cols)
+            df_image_seq = pd.DataFrame(columns=['seq_id', 'img_ids'])
             df_image_seq.to_csv(self.cfg.path.df_image_seq, index=False)
         return df_image_seq
     
-    def search_images(self, bbox: str):
+    def fetch_images(self, bbox: str):
         """
         Query Mapillary for images inside a bounding box.
         Returns a list of image objects with basic metadata.
@@ -79,7 +89,7 @@ class ScrapeImage:
         return data
 
             
-    def get_image_details(self, image_id: str):
+    def fetch_image_details(self, image_id: str):
         """
         Ask Mapillary for richer metadata for one specific image.
         Returns a dict with fields we asked for, including thumb_1024_url.
@@ -109,7 +119,7 @@ class ScrapeImage:
         out_path.write_bytes(resp.content)
         return out_path
 
-    def get_image_seq(self, seq_id: str):
+    def fetch_image_seq(self, seq_id: str):
         """
         Query Mapillary for image sequence with a sequence key.
         Returns a list of image objects with basic metadata.
@@ -123,6 +133,50 @@ class ScrapeImage:
         resp = requests.get(url)
         resp.raise_for_status()
         return resp.json()
+    
+    def reformat_image_details(self, details):
+        img_id = details.pop('id')
+        details['img_id'] = img_id
+        seq_id = details.pop('sequence')
+        details['seq_id'] = seq_id
+        if details.get('geometry', None):
+            assert details['geometry']['type'] == 'Point'
+            geometry = details.pop('geometry')
+            details['lon'] = geometry['coordinates'][0]
+            details['lat'] = geometry['coordinates'][1]
+            dist = ((lat - details['lat'])**2 + (lon - details['lon'])**2)**0.5
+            details['dist'] = dist
+            assert dist <= self.cfg.scrp.bbox_offset * 2**0.5
+            # if dist > cfg.scrp.bbox_offset:
+            #     continue
+        if details.get('computed_geometry', None):
+            assert details['computed_geometry']['type'] == 'Point'
+            computed_geometry = details.pop('computed_geometry')
+            details['computed_lon'] = computed_geometry['coordinates'][0]
+            details['computed_lat'] = computed_geometry['coordinates'][1]
+            computed_dist = ((lon - details['computed_lon'])**2 + (lat - details['computed_lat'])**2)**0.5
+            details['computed_dist'] = computed_dist
+            # assert computed_dist <= cfg.scrp.bbox_offset * 2**0.5
+        if details.get('computed_rotation', None):
+            assert isinstance(details['computed_rotation'], list)
+        if details.get('captured_at', None):
+            captured_at = details.pop('captured_at')
+            details['captured_at'] = pd.to_datetime(captured_at, unit='ms')
+        # if details.get('camera_parameters', None):
+        #     camera_parameters = details.pop('camera_parameters')
+        #     assert len(camera_parameters) == 3
+        #     details['focal_length'] = camera_parameters[0]
+        #     details['k1'] = camera_parameters[1]
+        #     details['k2'] = camera_parameters[2]
+        # else:
+        #     details['focal_length'] = None
+        #     details['k1'] = None
+        #     details['k2'] = None
+        # print(f"computed:\t{computed_dist :.6f}")
+        # print(f"actual:\t{dist :.6f}")
+        # pprint(details, sort_dicts=False)
+        
+        return details
     
     def extract_view(self, e_img: np.ndarray, h_fov=90, yaw_deg=0, pitch_deg=0, out_hw=(512, 512)) -> np.ndarray:
         """
@@ -147,65 +201,32 @@ class ScrapeImage:
         return pers
 
 
-def scrape_image(cfg: Config) -> pd.DataFrame:
+def scrape_image(cfg: Config, download=False) -> pd.DataFrame:
+    df_image = _get_image_list(cfg)
+    if download:
+        _download_image_list(cfg)
+    return df_image
+
+
+def _get_image_list(cfg: Config) -> pd.DataFrame:
     df_crossing = prepare_df_crossing(cfg)
     scraper = ScrapeImage(cfg)
     df_image = scraper.load_df_image()
     for i, row in tqdm(df_crossing[['CROSSING', 'LATITUDE', 'LONGITUD']].iterrows(), total=df_crossing.shape[0]):
-        crossing, lat, lon = row
-        if crossing in df_image['crossing_id'].values:
+        crossing_id, lat, lon = row
+        if crossing_id in df_image['crossing_id'].values:
             continue
         bbox_exact_match = f"{lon - cfg.scrp.bbox_offset},{lat - cfg.scrp.bbox_offset},{lon + cfg.scrp.bbox_offset},{lat + cfg.scrp.bbox_offset}"
-        imgs = scraper.search_images(bbox_exact_match)
+        imgs = scraper.fetch_images(bbox_exact_match)
 
-        details_concat = [{'crossing_id': crossing}]
+        details_concat = [{'crossing_id': crossing_id}]
         for img in imgs:
             img_id = img["id"]
             if img_id in df_image['img_id'].values:
                 continue
-            details = scraper.get_image_details(img_id)
-            details['crossing_id'] = crossing
-            img_id = details.pop('id')
-            details['img_id'] = img_id
-            seq_id = details.pop('sequence')
-            details['seq_id'] = seq_id
-            if details.get('geometry', None):
-                assert details['geometry']['type'] == 'Point'
-                geometry = details.pop('geometry')
-                details['lon'] = geometry['coordinates'][0]
-                details['lat'] = geometry['coordinates'][1]
-                dist = ((lat - details['lat'])**2 + (lon - details['lon'])**2)**0.5
-                details['dist'] = dist
-                assert dist <= cfg.scrp.bbox_offset * 2**0.5
-                # if dist > cfg.scrp.bbox_offset:
-                #     continue
-            if details.get('computed_geometry', None):
-                assert details['computed_geometry']['type'] == 'Point'
-                computed_geometry = details.pop('computed_geometry')
-                details['computed_lon'] = computed_geometry['coordinates'][0]
-                details['computed_lat'] = computed_geometry['coordinates'][1]
-                computed_dist = ((lon - details['computed_lon'])**2 + (lat - details['computed_lat'])**2)**0.5
-                details['computed_dist'] = computed_dist
-                # assert computed_dist <= cfg.scrp.bbox_offset * 2**0.5
-            if details.get('computed_rotation', None):
-                assert isinstance(details['computed_rotation'], list)
-            if details.get('captured_at', None):
-                captured_at = details.pop('captured_at')
-                details['captured_at'] = pd.to_datetime(captured_at, unit='ms')
-            # if details.get('camera_parameters', None):
-            #     camera_parameters = details.pop('camera_parameters')
-            #     assert len(camera_parameters) == 3
-            #     details['focal_length'] = camera_parameters[0]
-            #     details['k1'] = camera_parameters[1]
-            #     details['k2'] = camera_parameters[2]
-            # else:
-            #     details['focal_length'] = None
-            #     details['k1'] = None
-            #     details['k2'] = None
-            # print(f"computed:\t{computed_dist :.6f}")
-            # print(f"actual:\t{dist :.6f}")
-            # pprint(details, sort_dicts=False)
-
+            details = scraper.fetch_image_details(img_id)
+            details['crossing_id'] = crossing_id
+            details = scraper.reformat_image_details(details)
             details_concat.append(details)
         
         df_image_temp = pd.DataFrame(details_concat, columns=df_image.columns)
@@ -216,6 +237,10 @@ def scrape_image(cfg: Config) -> pd.DataFrame:
         
     df_image.to_csv(cfg.path.df_image, index=False)
 
+    return df_image
+
+
+def _download_image_list(cfg: Config):
     # df_image_dir_name = df_image.drop_duplicates(subset=['crossing_id', 'seq_id'], keep='first')
     # for i, row in tqdm(df_image_dir_name.iterrows(), total=df_image_dir_name.shape[0]):
     #     crossing_id = row['crossing_id']
@@ -237,50 +262,94 @@ def scrape_image(cfg: Config) -> pd.DataFrame:
     #     fp_output = pathlib.Path(os.path.join(cfg.path.dir_scraped_images, crossing_id, seq_id, f"{img_id}.jpg"))
     #     if not fp_output.exists() and pd.notna(thumb_url):
     #         scraper.download_from_url(thumb_url, fp_output)
+    raise NotImplementedError("The function `scrape_image` is deprecated. Please use `scrape_image_seq` instead to directly get the image sequences for each crossing.")
 
-    return df_image
+
+def scrape_image_seq(cfg: Config, download=False) -> pd.DataFrame:
+    df_image_seq = _get_image_seq_list(cfg)
+    if download:
+        _download_image_seq(cfg)
+    return df_image_seq
 
 
-def scrape_image_seq(cfg: Config) -> pd.DataFrame:
+def _get_image_seq_list(cfg: Config) -> pd.DataFrame:
     scraper = ScrapeImage(cfg)
-    df_crossing = prepare_df_crossing(cfg)
     df_image = scraper.load_df_image()
     df_image_seq = scraper.load_df_image_seq()
+
+    df_image = df_image.dropna(subset=['seq_id'])
+
+    # First get all the image sequences for the crossings
+    for i, seq_id in tqdm(enumerate(df_image['seq_id'].unique()), total=df_image['seq_id'].nunique()):
+        if seq_id in df_image_seq['seq_id'].unique():
+            continue
+        
+        resp = scraper.fetch_image_seq(seq_id)
+        seq = resp['data']
+        if len(resp.keys()) != 1:
+            raise ValueError(f"Unexpected response format (another key other than 'data') for sequence {seq_id}: {resp}")
+        if len(seq) == 0:
+            raise ValueError(f"seq length is 0 for sequence {seq_id}. This may indicate that the sequence has no images or that the sequence ID is invalid.")
+
+        data = [{'seq_id': seq_id, 'img_ids': [resp_img_id['id'] for resp_img_id in seq]}]
+        df_image_seq_temp = pd.DataFrame(data)
+        df_image_seq = pd.concat([df_image_seq, df_image_seq_temp], ignore_index=True)
+
+        if i % 10 == 0:
+            df_image_seq.to_csv(cfg.path.df_image_seq, index=False)
+    df_image_seq.to_csv(cfg.path.df_image_seq, index=False)
+
+    return df_image_seq
+
+
+def __image_seq(cfg: Config) -> pd.DataFrame:
+    raise NotImplementedError("The function `scrape_image_seq` already downloads the images while getting the image sequences. No need to call a separate download function.")
+    ############### filtering df_image
+    df_image = df_image.dropna(subset=['seq_id'])
+    df_image['img_id'] = df_image['img_id'].astype(int)
+    # df_image = df_image[df_image['is_pano'] == 1]
+    # df_image = df_image[df_image['camera_type'] == 'spherical'] # [spherical, equirectangular] equirectangular images require diff view extraction mechanism
     
-    ############### using only actual GPS & highway-xing
-    df_crossing = df_crossing[df_crossing['CROSSING'].isin(df_image[df_image['id'].notna()]['crossing'].unique())]
+    ############### filtering df_crossing
+    target_crossings = df_image['crossing_id'].unique()
+    df_crossing = df_crossing[df_crossing['CROSSING'].isin(target_crossings)]
     df_crossing = df_crossing[df_crossing['LLSOURCE'].isin(['1'])] # ['1', '2', ' '];  ' ' mostly incorrect, '2' sometimes incorrect
     df_crossing = df_crossing[df_crossing['XPURPOSE'] == 1] # 1: highway, 2: pedestrian pathway, 3: train station / [2,3] images are generally not available
     df_crossing = df_crossing.drop(['HIGHWAY', 'RRDIV', 'RRSUBDIV'], axis=1)
-    # print(df_crossing[df_crossing['STREET'].str.lower().str.contains('wright')])
 
-    ############### using only pano
-    df_image = df_image.dropna(subset=['id'])
-    df_image.loc[:, 'id'] = df_image['id'].astype(int)
-    df_image = df_image[df_image['is_pano'] == 1]
-    df_image = df_image[df_image['camera_type'] == 'spherical'] # [spherical, equirectangular] equirectangular images require diff view extraction mechanism
-    
     ############### merge
-    df_image = df_image.merge(df_crossing[['CROSSING', 'LATITUDE', 'LONGITUD', 'STREET']], left_on='crossing', right_on='CROSSING')
+    df_image = df_image.merge(df_crossing[['CROSSING', 'LATITUDE', 'LONGITUD', 'STREET']], left_on='crossing_id', right_on='CROSSING')
     df_image = df_image.drop(columns=['CROSSING'])
+    df_image = df_image.rename(columns={'LATITUDE': 'crossing_lat', 'LONGITUD': 'crossing_lon', 'STREET': 'crossing_street', 'lat': 'img_lat', 'lon': 'img_lon'})
+
+    # # check how many image sequences span across multiple crossings
+    # df_drop_dup = df_image.drop_duplicates(subset=['crossing_id', 'seq_id'])
+    # seq_spanning = df_drop_dup['seq_id'].duplicated().sum()
+    # print(f"{seq_spanning} / {df_drop_dup.shape[0]} sequences span across multiple crossings.")
+
+    return
     
+    
+def _download_image_seq(cfg: Config):
+    raise NotImplementedError("The function `scrape_image_seq` already downloads the images while getting the image sequences. No need to call a separate download function.")
+
+
+def tentative():
     ############### using only images with distance over the threshold
-    # df_image = df_image[(df_image['dist'] <= threshold) | (df_image['computed_dist'] <= threshold)]
-    cols_df_min_dist = ['crossing', 'id', 'captured_at', 'compass_angle', 'computed_compass_angle', 'sequence', 'lat', 'lon', 'LATITUDE', 'LONGITUD', 'dist']
-    df_min_dist = df_image.loc[df_image.groupby("crossing")["dist"].idxmin()][cols_df_min_dist].reset_index(drop=True)
+    cols_df_min_dist = ['crossing_id', 'img_id', 'captured_at', 'compass_angle', 'computed_compass_angle', 'sequence', 'img_lat', 'img_lon', 'crossing_lat', 'crossing_lon', 'dist']
+    df_min_dist = df_image.loc[df_image.groupby("crossing_id")["dist"].idxmin()][cols_df_min_dist].reset_index(drop=True)
     df_min_dist = df_min_dist[df_min_dist['dist'] <= cfg.scrp.dist_thres_filter_img] # it seems actual GPS location is more accurate than computed GPS location, so I only use `dist` here, not `computed_dist`.
-    # df_min_dist[(df_min_dist['captured_at'].dt.hour >= 20) | (df_min_dist['captured_at'].dt.hour <= 6)]['sequence'].unique()
     
     ############### get image seq
     (((df_image['lat'] - df_image['computed_lat'])**2 + (df_image['lon'] - df_image['computed_lon'])**2)**0.5).dropna().sort_values()
     for i, row in tqdm(df_min_dist.iterrows(), total=df_min_dist.shape[0]):
-        crossing_id = row['crossing']
+        crossing_id = row['crossing_id']
         if crossing_id in df_image_seq['crossing_id'].values:
             continue
         seq_id = row['sequence']
-        xing_lat, xing_lon = row[['LATITUDE', 'LONGITUD']]
+        xing_lat, xing_lon = row[['crossing_lat', 'crossing_lon']]
         
-        df_seq_temp = df_image[(df_image['crossing'] == crossing_id) & (df_image['sequence'] == seq_id)]
+        df_seq_temp = df_image[(df_image['crossing_id'] == crossing_id) & (df_image['sequence'] == seq_id)]
         df_seq_temp = df_seq_temp[(df_seq_temp['computed_compass_angle'].notna())]
         # select_img_within = [0.0001, 0.0002]
         # df_seq_temp = df_seq_temp[(select_img_within[0] <= df_seq_temp['dist']) & (df_seq_temp['dist'] <= select_img_within[1])]
@@ -288,12 +357,12 @@ def scrape_image_seq(cfg: Config) -> pd.DataFrame:
         if df_seq_temp.shape[0] <= 1:
             continue
         
-        images = scraper.get_image_seq(seq_id)['data']
+        images = scraper.fetch_image_seq(seq_id)['data']
         images = [image['id'] for image in images]
         # for image in tqdm(images, leave=False):
         #     img_id = image['id']
-        #     details = scraper.get_image_details(img_id)
-        #     dist = ((row[['LONGITUD', 'LATITUDE']] - details['geometry']['coordinates'])**2).sum()**0.5
+        #     details = scraper.fetch_image_details(img_id)
+        #     dist = ((row[['crossing_lon', 'crossing_lat']] - details['geometry']['coordinates'])**2).sum()**0.5
         #     if dist > cfg.scrp.bbox_offset * 2 or dist < cfg.scrp.bbox_offset / 2:
         #         continue
         #     assert details['geometry']['type'] == 'Point'
@@ -304,7 +373,7 @@ def scrape_image_seq(cfg: Config) -> pd.DataFrame:
         # print(df_seq_temp)
         df_image_seq_temp = pd.DataFrame(columns=df_image_seq.columns)
         for _, seq_row in df_seq_temp.iterrows():
-            img_id = str(int(seq_row['id']))
+            img_id = str(int(seq_row['img_id']))
             if img_id not in images or pd.isna(seq_row['computed_compass_angle']):
                 continue
             img_pos = str(images.index(str(img_id))).zfill(4)
@@ -355,10 +424,10 @@ def scrape_3D(cfg: Config) -> pd.DataFrame:
         df_3D = pd.DataFrame(columns=columns_df_3D + columns_df_3D_add)
     
     df_image = prepare_df_image(cfg)
-    df_image = df_image.dropna(subset=['id'])
+    df_image = df_image.dropna(subset=['img_id'])
     df_image_seq = prepare_df_image_seq(cfg)
 
-    df_merge_temp = df_image_seq.merge(df_image, left_on=['crossing_id', 'img_id'], right_on=['crossing', 'id'], how='left').drop(columns=['crossing', 'id', 'sequence']).copy(deep=True)
+    df_merge_temp = df_image_seq.merge(df_image, left_on=['crossing_id', 'img_id'], right_on=['crossing_id', 'img_id'], how='left').drop(columns=['crossing_id', 'img_id', 'sequence']).copy(deep=True)
     df_merge_temp = df_merge_temp[~df_merge_temp['img_id'].isin(df_3D['img_id'].values)]
     df_merge_temp = df_merge_temp[columns_df_3D].copy(deep=True)
     df_merge_temp[columns_df_3D_add] = None
@@ -371,7 +440,7 @@ def scrape_3D(cfg: Config) -> pd.DataFrame:
         mesh_url = row['mesh_url']
         if sfm_url and mesh_url:
             continue
-        img_detail = scraper.get_image_details(img_id)
+        img_detail = scraper.fetch_image_details(img_id)
         sfm_cluster = img_detail['sfm_cluster']
         mesh = img_detail['mesh']
         df_sfm_mesh.loc[i, 'sfm_id'] = sfm_cluster['id'] if 'id' in sfm_cluster else None # type: ignore
