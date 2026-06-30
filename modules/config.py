@@ -18,6 +18,7 @@ FN_DICT_API_KEY: Final[str] = 'dict_api_key.json'
 FN_DF_CROSSING: Final[str] = '251009 NTAD_Railroad_Grade_Crossings_1739202960140128164.csv'
 FN_DF_IMAGE: Final[str] = 'df_image.csv'
 FN_DF_IMAGE_SEQ: Final[str] = 'df_image_seq.csv'
+FN_DF_IMAGE_SEQ_DETAIL: Final[str] = 'df_image_seq_detail.csv'
 
 # configurations
 TARGET_STATES: Final[tuple[str, ...]] = ('California',)
@@ -37,7 +38,6 @@ IMG_DETAIL_FIELDS: Final[tuple[str, ...]] = (
     # "detections", # object detection - can be fetched using other API: https://www.mapillary.com/developer/api-documentation#detection
 )
 BBOX_OFFSET: Final[float] = 0.0001 # 0.00001 ≒ 1.11 meters
-DIST_THRES_FILTER_IMG: Final[float] = 0.00001 # 0.00001 ≒ 1.11 meters
 DIST_THRES_FILTER_IMG_SEQ: Final[float] = 0.0005 # 0.00001 ≒ 1.11 meters
 
 
@@ -94,7 +94,6 @@ class ScrapingConfig:
     img_search_fields: tuple[str, ...]
     img_detail_fields: tuple[str, ...]
     bbox_offset: float
-    dist_thres_filter_img: float
     dist_thres_filter_img_seq: float
 
     def __post_init__(self):
@@ -121,6 +120,7 @@ class PathConfig:
 
     df_image: str
     df_image_seq: str
+    df_image_seq_detail: str
 
 
 @dataclass()
@@ -156,6 +156,7 @@ def _compute_paths() -> PathConfig:
         
         df_image=os.path.join(dp_scraped_images, FN_DF_IMAGE),
         df_image_seq=os.path.join(dp_image_seq, FN_DF_IMAGE_SEQ),
+        df_image_seq_detail=os.path.join(dp_image_seq, FN_DF_IMAGE_SEQ_DETAIL),
     )
 
 def _load_api_key(path_cfg: PathConfig) -> APIkeyConfig:
@@ -175,7 +176,7 @@ def build_config(args_dict=None) -> Config:
     # retr_args['model'] = sanitize_model_path(retr_args['model'])
     scrp_cfg = ScrapingConfig(
         TARGET_STATES, IMG_SEARCH_FIELDS, IMG_DETAIL_FIELDS,
-        BBOX_OFFSET, DIST_THRES_FILTER_IMG, DIST_THRES_FILTER_IMG_SEQ
+        BBOX_OFFSET, DIST_THRES_FILTER_IMG_SEQ
     )
     path_cfg = _compute_paths()
     apikey_cfg = _load_api_key(path_cfg)
