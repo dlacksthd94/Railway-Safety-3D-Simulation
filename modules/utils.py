@@ -191,7 +191,7 @@ def prepare_df_crossing(cfg):
 
 
 def prepare_df_image(cfg):
-    df_image = pd.read_csv(cfg.path.df_image)
+    df_image = pd.read_csv(cfg.path.df_image_cand)
     df_image['img_id'] = df_image['img_id'].apply(lambda x: str(int(x)) if pd.notna(x) else x)
     df_image = df_image.sort_values('crossing_id', ignore_index=True)
     df_image['computed_rotation'] = df_image['computed_rotation'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)

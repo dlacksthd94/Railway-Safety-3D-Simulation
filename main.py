@@ -38,6 +38,7 @@ print('------------Scraping Images DONE!!------------')
 
 # print('------------Augmenting Images DONE!!------------')
 
+
 # ############### scrape 3D reconstruction from mapillary (ONLY ONE-TIME TASK)
 # df_3D = scrape_3D(cfg)
 

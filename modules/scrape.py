@@ -52,11 +52,11 @@ class ScrapeImage:
         return img_cols
     
     def load_df_image(self):
-        if os.path.exists(self.cfg.path.df_image):
+        if os.path.exists(self.cfg.path.df_image_cand):
             df_image = prepare_df_image(self.cfg)
         else:
             df_image = pd.DataFrame(columns=self.img_cols)
-            df_image.to_csv(self.cfg.path.df_image, index=False)
+            df_image.to_csv(self.cfg.path.df_image_cand, index=False)
         return df_image
     
     def load_df_image_seq(self):
@@ -239,9 +239,9 @@ def _get_image_list(cfg: Config) -> pd.DataFrame:
         df_image = pd.concat([df_image, df_image_temp], ignore_index=True)
         
         if i % 10 == 0: # type: ignore
-            df_image.to_csv(cfg.path.df_image, index=False)
+            df_image.to_csv(cfg.path.df_image_cand, index=False)
         
-    df_image.to_csv(cfg.path.df_image, index=False)
+    df_image.to_csv(cfg.path.df_image_cand, index=False)
 
     return df_image
 
@@ -392,6 +392,7 @@ def _download_image_seq(cfg: Config):
             if num_downloaded == df_image_seq_detail.shape[0]:
                 print("All images have been downloaded successfully.")
                 break
+
 
 def __to_be_used():
     raise NotImplementedError("The function `_get_image_seq_detail` is not yet implemented. It should fetch detailed information for each image in the sequences, but this functionality is currently a placeholder.")

@@ -9,14 +9,13 @@ from .utils import make_dir, remove_dir, sanitize_model_path
 # directories
 DN_DATA_ROOT: Final[str] = "/data2/clim090/railway/data"
 DN_MAPILLARY: Final[str] = 'mapillary'
-DN_SCRAPED_IMAGES: Final[str] = 'scraped_image'
 DN_IMAGE_SEQ: Final[str] = 'image_seq'
 
 # files
 FN_DICT_API_KEY: Final[str] = 'dict_api_key.json'
 
 FN_DF_CROSSING: Final[str] = '251009 NTAD_Railroad_Grade_Crossings_1739202960140128164.csv'
-FN_DF_IMAGE: Final[str] = 'df_image.csv'
+FN_DF_IMAGE_CAND: Final[str] = 'df_image_cand.csv'
 FN_DF_IMAGE_SEQ: Final[str] = 'df_image_seq.csv'
 FN_DF_IMAGE_SEQ_DETAIL: Final[str] = 'df_image_seq_detail.csv'
 
@@ -110,7 +109,6 @@ class ScrapingConfig:
 @dataclass(frozen=True)
 class PathConfig:
     # generated directories
-    dir_scraped_images: str
     dir_image_seq: str
     
     # files
@@ -118,7 +116,7 @@ class PathConfig:
 
     df_crossing: str
 
-    df_image: str
+    df_image_cand: str
     df_image_seq: str
     df_image_seq_detail: str
 
@@ -140,23 +138,20 @@ class Config:
 
 def _compute_paths() -> PathConfig:
     dp_mapillary = os.path.join(DN_DATA_ROOT, DN_MAPILLARY)
-    
-    dp_scraped_images = os.path.join(dp_mapillary, DN_SCRAPED_IMAGES)
-    make_dir(dp_scraped_images)
+
     dp_image_seq = os.path.join(dp_mapillary, DN_IMAGE_SEQ)
     make_dir(dp_image_seq)
     
     return PathConfig(
         df_crossing=os.path.join(DN_DATA_ROOT, FN_DF_CROSSING),
         
-        dir_scraped_images=dp_scraped_images,
         dir_image_seq=dp_image_seq,
         
         dict_api_key=os.path.join(DN_DATA_ROOT, FN_DICT_API_KEY),
         
-        df_image=os.path.join(dp_scraped_images, FN_DF_IMAGE),
-        df_image_seq=os.path.join(dp_image_seq, FN_DF_IMAGE_SEQ),
-        df_image_seq_detail=os.path.join(dp_image_seq, FN_DF_IMAGE_SEQ_DETAIL),
+        df_image_cand=os.path.join(dp_mapillary, FN_DF_IMAGE_CAND),
+        df_image_seq=os.path.join(dp_mapillary, FN_DF_IMAGE_SEQ),
+        df_image_seq_detail=os.path.join(dp_mapillary, FN_DF_IMAGE_SEQ_DETAIL),
     )
 
 def _load_api_key(path_cfg: PathConfig) -> APIkeyConfig:
