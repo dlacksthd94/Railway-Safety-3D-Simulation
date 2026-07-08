@@ -7,7 +7,7 @@ import json
 from .utils import make_dir, remove_dir, sanitize_model_path
 
 # directories
-DN_DATA_ROOT: Final[str] = "data"
+DN_DATA_ROOT: Final[str] = "/data2/clim090/railway/data"
 DN_MAPILLARY: Final[str] = 'mapillary'
 DN_SCRAPED_IMAGES: Final[str] = 'scraped_image'
 DN_IMAGE_SEQ: Final[str] = 'image_seq'

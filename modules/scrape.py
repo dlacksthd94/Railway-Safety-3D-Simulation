@@ -247,8 +247,8 @@ def _get_image_list(cfg: Config) -> pd.DataFrame:
 
 
 def scrape_image_seq(cfg: Config, download=False) -> pd.DataFrame:
-    # df_image_seq = _get_image_seq_list(cfg)
-    # df_image_seq_detail = _get_image_seq_detail(cfg)
+    df_image_seq = _get_image_seq_list(cfg)
+    df_image_seq_detail = _get_image_seq_detail(cfg)
     if download:
         _download_image_seq(cfg)
     return df_image_seq_detail
@@ -368,18 +368,30 @@ def _download_image_seq(cfg: Config):
         if not dp_output.exists():
             make_dir(dp_output) # type: ignore
     
-    for i, row in tqdm(df_image_seq_detail.iterrows(), total=df_image_seq_detail.shape[0]):
-        crossing_id = row['crossing_id']
-        seq_id = row['seq_id']
-        img_id = as_int(row['img_id'])
-        img_pos = str(as_int(row['img_pos'])).zfill(IMG_POS_ZFILL)
-        thumb_url = row["thumb_original_url"]
-        if pd.isna(img_id):
+    num_downloaded = 0
+    while True:
+        try:
+            for i, row in tqdm(df_image_seq_detail.iterrows(), total=df_image_seq_detail.shape[0]):
+                crossing_id = row['crossing_id']
+                seq_id = row['seq_id']
+                img_id = as_int(row['img_id'])
+                img_pos = str(as_int(row['img_pos'])).zfill(IMG_POS_ZFILL)
+                thumb_url = row["thumb_original_url"]
+                if pd.isna(img_id):
+                    continue
+                fp_output = pathlib.Path(os.path.join(cfg.path.dir_image_seq, crossing_id, seq_id, f"{img_pos}_{img_id}.jpg"))
+                if not fp_output.exists() and pd.notna(thumb_url):
+                    scraper.download_from_url(thumb_url, fp_output)
+                num_downloaded += 1
+        except:
+            time_to_sleep = 5
+            print(f"An error occurred during the download process. Retrying in {time_to_sleep} seconds...")
+            time.sleep(time_to_sleep)
             continue
-        fp_output = pathlib.Path(os.path.join(cfg.path.dir_image_seq, crossing_id, seq_id, f"{img_pos}_{img_id}.jpg"))
-        if not fp_output.exists() and pd.notna(thumb_url):
-            scraper.download_from_url(thumb_url, fp_output)
-
+        finally:
+            if num_downloaded == df_image_seq_detail.shape[0]:
+                print("All images have been downloaded successfully.")
+                break
 
 def __to_be_used():
     raise NotImplementedError("The function `_get_image_seq_detail` is not yet implemented. It should fetch detailed information for each image in the sequences, but this functionality is currently a placeholder.")

@@ -12,11 +12,11 @@ cfg = build_config()
 print('------------Configuration DONE!!------------')
 
 
-# ############### scrape crossing images from mapillary (ONLY ONE-TIME TASK)
-# df_image = scrape_image(cfg)
+############### scrape crossing images from mapillary (ONLY ONE-TIME TASK)
+df_image = scrape_image(cfg)
 df_image_seq = scrape_image_seq(cfg, download=True)
 
-# print('------------Scraping Images DONE!!------------')
+print('------------Scraping Images DONE!!------------')
 
 
 ############### preprocess images (ONLY ONE-TIME TASK)
