@@ -190,29 +190,29 @@ def prepare_df_crossing(cfg):
     return df_crossing
 
 
-def prepare_df_image(cfg):
-    df_image = pd.read_csv(cfg.path.df_image_cand)
-    df_image['img_id'] = df_image['img_id'].apply(lambda x: str(int(x)) if pd.notna(x) else x)
-    df_image = df_image.sort_values('crossing_id', ignore_index=True)
-    df_image['computed_rotation'] = df_image['computed_rotation'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
-    df_image['mesh'] = df_image['mesh'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
-    df_image['sfm_cluster'] = df_image['sfm_cluster'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
-    # df_image['detections'] = df_image['detections'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
-    df_image['creator'] = df_image['creator'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
-    df_image['camera_parameters'] = df_image['camera_parameters'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
+def prepare_df_image_cand(cfg):
+    df_image_cand = pd.read_csv(cfg.path.df_image_cand)
+    df_image_cand['img_id'] = df_image_cand['img_id'].apply(lambda x: str(int(x)) if pd.notna(x) else x)
+    df_image_cand = df_image_cand.sort_values('crossing_id', ignore_index=True)
+    df_image_cand['computed_rotation'] = df_image_cand['computed_rotation'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
+    df_image_cand['mesh'] = df_image_cand['mesh'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
+    df_image_cand['sfm_cluster'] = df_image_cand['sfm_cluster'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
+    # df_image_cand['detections'] = df_image_cand['detections'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
+    df_image_cand['creator'] = df_image_cand['creator'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
+    df_image_cand['camera_parameters'] = df_image_cand['camera_parameters'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
     
-    return df_image
+    return df_image_cand
+
+
+def prepare_df_image_ids_per_seq(cfg):
+    df_image_ids_per_seq = pd.read_csv(cfg.path.df_image_ids_per_seq)
+    df_image_ids_per_seq['img_ids'] = df_image_ids_per_seq['img_ids'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else [])
+    return df_image_ids_per_seq
 
 
 def prepare_df_image_seq(cfg):
     df_image_seq = pd.read_csv(cfg.path.df_image_seq)
-    df_image_seq['img_ids'] = df_image_seq['img_ids'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else [])
     return df_image_seq
-
-
-def prepare_df_image_seq_detail(cfg):
-    df_image_seq_detail = pd.read_csv(cfg.path.df_image_seq_detail)
-    return df_image_seq_detail
 
 
 def prepare_df_retrieval(cfg):

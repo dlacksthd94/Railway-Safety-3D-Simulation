@@ -12,7 +12,7 @@ import pathlib
 from .config import Config
 from .utils import (as_int, as_float, remove_dir, make_dir, 
                     prepare_df_crossing, 
-                    prepare_df_image, prepare_df_image_seq, prepare_df_image_seq_detail,
+                    prepare_df_image_cand, prepare_df_image_ids_per_seq, prepare_df_image_seq,
                     prepare_df_3D)
 from pprint import pprint
 from scipy.spatial.distance import cdist
@@ -27,55 +27,13 @@ import ast
 IMG_POS_ZFILL = 5
 
 
-class ScrapeImage:
+class MapillaryAPIClient:
     def __init__(self, cfg):
-        self.cfg = cfg
-        self.api_key = self.cfg.apikey.mapillary
-        self.img_search_fields = ','.join(self.cfg.scrp.img_search_fields)
-        self.img_detail_fields = ','.join(self.cfg.scrp.img_detail_fields)
-        self.df_image = None
-        self.img_cols = self.__set_col_list()
-
-    def __set_col_list(self):
-        """
-        Set up the columns for the image dataframes
-        """
-        img_cols = list(self.cfg.scrp.img_detail_fields)
-        # img_cols.remove('camera_parameters')
-        # img_cols.extend(['focal_length', 'k1', 'k2'])
-        img_cols.remove('geometry')
-        img_cols.remove('computed_geometry')
-        img_cols.extend(['img_lon', 'img_lat', 'computed_img_lon', 'computed_img_lat', 'dist', 'computed_dist'])
-        rename_map = {'id': 'img_id', 'sequence': 'seq_id'}
-        img_cols = [rename_map.get(col, col) for col in img_cols]
-        img_cols = ['crossing_id'] + img_cols        
-        return img_cols
-    
-    def load_df_image(self):
-        if os.path.exists(self.cfg.path.df_image_cand):
-            df_image = prepare_df_image(self.cfg)
-        else:
-            df_image = pd.DataFrame(columns=self.img_cols)
-            df_image.to_csv(self.cfg.path.df_image_cand, index=False)
-        return df_image
-    
-    def load_df_image_seq(self):
-        if os.path.exists(self.cfg.path.df_image_seq):
-            df_image_seq = prepare_df_image_seq(self.cfg)
-        else:
-            df_image_seq = pd.DataFrame(columns=['seq_id', 'img_ids'])
-            df_image_seq.to_csv(self.cfg.path.df_image_seq, index=False)
-        return df_image_seq
-    
-    def load_df_image_seq_detail(self):
-        if os.path.exists(self.cfg.path.df_image_seq_detail):
-            df_image_seq_detail = prepare_df_image_seq_detail(self.cfg)
-        else:
-            df_image_seq_detail = pd.DataFrame(columns=self.img_cols + ['img_pos'])
-            df_image_seq_detail.to_csv(self.cfg.path.df_image_seq_detail, index=False)
-        return df_image_seq_detail
-    
-    def fetch_images(self, bbox: str):
+        self.api_key = cfg.apikey.mapillary
+        self.img_search_fields = ','.join(cfg.scrp.img_search_fields)
+        self.img_detail_fields = ','.join(cfg.scrp.img_detail_fields)
+        
+    def request_images(self, bbox: str):
         """
         Query Mapillary for images inside a bounding box.
         Returns a list of image objects with basic metadata.
@@ -99,7 +57,7 @@ class ScrapeImage:
         return data
 
             
-    def fetch_image_details(self, image_id: str):
+    def request_image_details(self, image_id: str):
         """
         Ask Mapillary for richer metadata for one specific image.
         Returns a dict with fields we asked for, including thumb_1024_url.
@@ -119,17 +77,7 @@ class ScrapeImage:
             resp.raise_for_status()
         return resp.json()
 
-    def download_from_url(self, url: str, out_path: pathlib.Path):
-        """
-        Download the content and save it locally.
-        """
-        resp = requests.get(url)
-        resp.raise_for_status()
-
-        out_path.write_bytes(resp.content)
-        return out_path
-
-    def fetch_image_seq(self, seq_id: str):
+    def request_image_seq(self, seq_id: str):
         """
         Query Mapillary for image sequence with a sequence key.
         Returns a list of image objects with basic metadata.
@@ -143,7 +91,228 @@ class ScrapeImage:
         resp = requests.get(url)
         resp.raise_for_status()
         return resp.json()
+
+    def download_from_url(self, url: str, out_path: pathlib.Path):
+        """
+        Download the content and save it locally.
+        """
+        resp = requests.get(url)
+        resp.raise_for_status()
+
+        out_path.write_bytes(resp.content)
+        return out_path
+
+
+class MapillaryImageFetcher:
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.mapillary_client = MapillaryAPIClient(cfg)
+        self.img_cols = self.__set_col_list()
+
+    def __set_col_list(self):
+        """
+        Set up the columns for the image dataframes
+        """
+        img_cols = list(self.cfg.scrp.img_detail_fields)
+        # img_cols.remove('camera_parameters')
+        # img_cols.extend(['focal_length', 'k1', 'k2'])
+        img_cols.remove('geometry')
+        img_cols.remove('computed_geometry')
+        img_cols.extend(['img_lon', 'img_lat', 'computed_img_lon', 'computed_img_lat', 'dist', 'computed_dist'])
+        rename_map = {'id': 'img_id', 'sequence': 'seq_id'}
+        img_cols = [rename_map.get(col, col) for col in img_cols]
+        img_cols = ['crossing_id'] + img_cols        
+        return img_cols
     
+    def load_df_image_cand(self):
+        if os.path.exists(self.cfg.path.df_image_cand):
+            df_image_cand = prepare_df_image_cand(self.cfg)
+        else:
+            df_image_cand = pd.DataFrame(columns=self.img_cols)
+            df_image_cand.to_csv(self.cfg.path.df_image_cand, index=False)
+        return df_image_cand
+    
+    def load_df_image_ids_per_seq(self):
+        if os.path.exists(self.cfg.path.df_image_ids_per_seq):
+            df_image_ids_per_seq = prepare_df_image_ids_per_seq(self.cfg)
+        else:
+            df_image_ids_per_seq = pd.DataFrame(columns=['seq_id', 'img_ids'])
+            df_image_ids_per_seq.to_csv(self.cfg.path.df_image_ids_per_seq, index=False)
+        return df_image_ids_per_seq
+    
+    def load_df_image_seq(self):
+        if os.path.exists(self.cfg.path.df_image_seq):
+            df_image_seq = prepare_df_image_seq(self.cfg)
+        else:
+            df_image_seq = pd.DataFrame(columns=self.img_cols + ['img_pos'])
+            df_image_seq.to_csv(self.cfg.path.df_image_seq, index=False)
+        return df_image_seq
+    
+    def fetch_image_cand_per_crossing(self, cfg: Config) -> pd.DataFrame:
+        df_crossing = prepare_df_crossing(cfg)
+        df_image_cand = self.load_df_image_cand()
+        for i, row in tqdm(df_crossing[['CROSSING', 'LATITUDE', 'LONGITUD']].iterrows(), total=df_crossing.shape[0]):
+            crossing_id, xing_lat, xing_lon = row
+            if crossing_id in df_image_cand['crossing_id'].values:
+                continue
+            bbox_exact_match = f"{xing_lon - cfg.scrp.bbox_offset},{xing_lat - cfg.scrp.bbox_offset},{xing_lon + cfg.scrp.bbox_offset},{xing_lat + cfg.scrp.bbox_offset}"
+            imgs = self.mapillary_client.request_images(bbox_exact_match)
+
+            details_concat = [{'crossing_id': crossing_id}]
+            for img in imgs:
+                img_id = img["id"]
+                if img_id in df_image_cand['img_id'].values:
+                    continue
+                details = self.mapillary_client.request_image_details(img_id)
+                details['crossing_id'] = crossing_id
+                details = self.reformat_image_details(details, xing_lat, xing_lon)
+                details_concat.append(details)
+            
+            df_image_temp = pd.DataFrame(details_concat, columns=df_image_cand.columns)
+            df_image_cand = pd.concat([df_image_cand, df_image_temp], ignore_index=True)
+            
+            if i % 10 == 0: # type: ignore
+                df_image_cand.to_csv(cfg.path.df_image_cand, index=False)
+            
+        df_image_cand.to_csv(cfg.path.df_image_cand, index=False)
+
+        return df_image_cand
+    
+    def fetch_image_ids_per_seq(self, cfg: Config) -> pd.DataFrame:
+        df_image_cand = self.load_df_image_cand()
+        df_image_ids_per_seq = self.load_df_image_ids_per_seq()
+
+        df_image_cand = df_image_cand.dropna(subset=['seq_id'])
+
+        # First get all the image sequences for the crossings
+        for i, seq_id in tqdm(enumerate(df_image_cand['seq_id'].unique()), total=df_image_cand['seq_id'].nunique()):
+            if seq_id in df_image_ids_per_seq['seq_id'].unique():
+                continue
+            
+            resp = self.mapillary_client.request_image_seq(seq_id)
+            seq = resp['data']
+            if len(resp.keys()) != 1:
+                raise ValueError(f"Unexpected response format (another key other than 'data') for sequence {seq_id}: {resp}")
+            if len(seq) == 0:
+                raise ValueError(f"seq length is 0 for sequence {seq_id}. This may indicate that the sequence has no images or that the sequence ID is invalid.")
+
+            data = [{'seq_id': seq_id, 'img_ids': [resp_img_id['id'] for resp_img_id in seq]}]
+            df_image_ids_per_seq_temp = pd.DataFrame(data)
+            df_image_ids_per_seq = pd.concat([df_image_ids_per_seq, df_image_ids_per_seq_temp], ignore_index=True)
+
+            if i % 10 == 0:
+                df_image_ids_per_seq.to_csv(cfg.path.df_image_ids_per_seq, index=False)
+        df_image_ids_per_seq.to_csv(cfg.path.df_image_ids_per_seq, index=False)
+
+        return df_image_ids_per_seq
+
+    def fetch_image_seq(self, cfg: Config) -> pd.DataFrame:
+        df_crossing = prepare_df_crossing(cfg)
+        df_image_cand = self.load_df_image_cand()
+        df_image_ids_per_seq = self.load_df_image_ids_per_seq()
+        df_image_seq = self.load_df_image_seq()
+
+        df_image_cand = df_image_cand.dropna(subset=['seq_id'])
+        df_image_gp = df_image_cand.groupby(['crossing_id', 'seq_id'])
+        df_crossing_seq = df_image_gp.apply(lambda x: x.loc[x['dist'].idxmin()]).reset_index(drop=False) # for each crossing and sequence group, leave only an image with the minimum distance to the crossing, which is min of 'dist' column.
+
+        df_image_ids_per_seq = df_image_ids_per_seq.set_index('seq_id')
+        assert df_image_ids_per_seq['img_ids'].str.len().max() <= 10**IMG_POS_ZFILL, \
+            f"The image position index (img_pos) will exceed the maximum number of digits allowed by IMG_POS_ZFILL={IMG_POS_ZFILL}. Please increase IMG_POS_ZFILL to accommodate the maximum sequence length."
+
+        for i, row in tqdm(df_crossing_seq.iterrows(), total=df_crossing_seq.shape[0]):
+            crossing_id = row['crossing_id']
+            seq_id = row['seq_id']
+            img_id = row['img_id']
+            xing_lat, xing_lon = df_crossing.loc[df_crossing['CROSSING'] == crossing_id, ['LATITUDE', 'LONGITUD']].values[0]
+            if not df_image_seq[(df_image_seq['crossing_id'] == crossing_id) & (df_image_seq['seq_id'] == seq_id)].empty:
+                continue
+
+            img_ids = df_image_ids_per_seq.loc[seq_id, 'img_ids']
+            try:
+                img_pos = img_ids.index(str(img_id)) # type: ignore
+            except:
+                img_pos = float('nan')
+                print(f'Warning: img_id {img_id} not found in the image sequence {seq_id} for crossing {crossing_id}. This may indicate that there is a mismatch.')
+
+            row['img_pos'] = img_pos
+            df_image_seq_temp = pd.DataFrame(columns=df_image_seq.columns)
+            df_image_seq_temp = pd.concat([df_image_seq_temp, row.to_frame().T])
+            if pd.isna(img_pos):
+                df_image_seq = pd.concat([df_image_seq, df_image_seq_temp], ignore_index=True)
+                continue
+
+            search_config = {
+                'forward': {'within_boundary': True, 'pos_step': 1},
+                'backward': {'within_boundary': True, 'pos_step': -1}
+            }
+            for search_direction, config in search_config.items():
+                img_pos_temp = img_pos
+                while config['within_boundary']:
+                    img_pos_temp += config['pos_step']
+                    if img_pos_temp < 0 or img_pos_temp >= len(img_ids): # type: ignore
+                        break
+                    img_id_temp = img_ids[img_pos_temp] # type: ignore
+                    details = self.mapillary_client.request_image_details(img_id_temp) # type: ignore
+                    details['crossing_id'] = crossing_id
+                    details = self.reformat_image_details(details, xing_lat, xing_lon)
+                    details['img_pos'] = img_pos_temp
+
+                    if details['dist'] > cfg.scrp.dist_thres_filter_img_seq:
+                        config['within_boundary'] = False
+                    df_details_temp = pd.DataFrame([details], columns=df_image_seq.columns)
+                    if search_direction == 'forward':
+                        df_image_seq_temp = pd.concat([df_image_seq_temp, df_details_temp], ignore_index=True)
+                    elif search_direction == 'backward':
+                        df_image_seq_temp = pd.concat([df_details_temp, df_image_seq_temp], ignore_index=True)
+                    else:
+                        raise ValueError(f"Unexpected search_direction: {search_direction}. Expected 'forward' or 'backward'.")
+            
+            df_image_seq = pd.concat([df_image_seq, df_image_seq_temp], ignore_index=True)
+            if i % 10 == 0: # type: ignore
+                df_image_seq.to_csv(cfg.path.df_image_seq, index=False)
+        df_image_seq.to_csv(cfg.path.df_image_seq, index=False)
+
+        return df_image_seq
+
+
+    def download_image_seq(self, cfg: Config):
+        df_image_seq = self.load_df_image_seq()
+
+        # create directories for each crossing and sequence
+        df_image_dir_name = df_image_seq.drop_duplicates(subset=['crossing_id', 'seq_id'], keep='first')
+        for i, row in df_image_dir_name.iterrows():
+            crossing_id = row['crossing_id']
+            seq_id = row['seq_id']
+            img_id = as_int(row['img_id'])
+            if pd.isna(img_id):
+                continue
+            dp_output = pathlib.Path(os.path.join(cfg.path.dir_image_seq, crossing_id, seq_id))
+            if not dp_output.exists():
+                make_dir(dp_output) # type: ignore
+        
+        # start downloading images
+        all_downloaded = False
+        while not all_downloaded:
+            try:
+                for i, row in tqdm(df_image_seq.iterrows(), total=df_image_seq.shape[0]):
+                    crossing_id = row['crossing_id']
+                    seq_id = row['seq_id']
+                    img_id = as_int(row['img_id'])
+                    img_pos = str(as_int(row['img_pos'])).zfill(IMG_POS_ZFILL)
+                    thumb_url = row["thumb_original_url"]
+                    if pd.isna(img_id):
+                        continue
+                    fp_output = pathlib.Path(os.path.join(cfg.path.dir_image_seq, crossing_id, seq_id, f"{img_pos}_{img_id}.jpg"))
+                    if not fp_output.exists() and pd.notna(thumb_url):
+                        self.mapillary_client.download_from_url(thumb_url, fp_output)
+                all_downloaded = True
+            except:
+                time_to_sleep = 10
+                print(f"An error occurred during the download process. Retrying in {time_to_sleep} seconds...")
+                time.sleep(time_to_sleep)
+                continue
+
     def reformat_image_details(self, details, xing_lat, xing_lon):
         img_id = details.pop('id')
         details['img_id'] = img_id
@@ -209,189 +378,23 @@ class ScrapeImage:
         return pers
 
 
-def scrape_image(cfg: Config) -> pd.DataFrame:
-    df_image = _get_image_list(cfg)
-    return df_image
+def fetch_image_cand(cfg: Config) -> pd.DataFrame:
+    image_fetcher = MapillaryImageFetcher(cfg)
+    df_image_cand = image_fetcher.fetch_image_cand_per_crossing(cfg)
+    print(f"Fetched {len(df_image_cand)} images within bounding boxes around {df_image_cand['crossing_id'].nunique()} crossings.")
+    return df_image_cand
 
 
-def _get_image_list(cfg: Config) -> pd.DataFrame:
-    df_crossing = prepare_df_crossing(cfg)
-    scraper = ScrapeImage(cfg)
-    df_image = scraper.load_df_image()
-    for i, row in tqdm(df_crossing[['CROSSING', 'LATITUDE', 'LONGITUD']].iterrows(), total=df_crossing.shape[0]):
-        crossing_id, xing_lat, xing_lon = row
-        if crossing_id in df_image['crossing_id'].values:
-            continue
-        bbox_exact_match = f"{xing_lon - cfg.scrp.bbox_offset},{xing_lat - cfg.scrp.bbox_offset},{xing_lon + cfg.scrp.bbox_offset},{xing_lat + cfg.scrp.bbox_offset}"
-        imgs = scraper.fetch_images(bbox_exact_match)
-
-        details_concat = [{'crossing_id': crossing_id}]
-        for img in imgs:
-            img_id = img["id"]
-            if img_id in df_image['img_id'].values:
-                continue
-            details = scraper.fetch_image_details(img_id)
-            details['crossing_id'] = crossing_id
-            details = scraper.reformat_image_details(details, xing_lat, xing_lon)
-            details_concat.append(details)
-        
-        df_image_temp = pd.DataFrame(details_concat, columns=df_image.columns)
-        df_image = pd.concat([df_image, df_image_temp], ignore_index=True)
-        
-        if i % 10 == 0: # type: ignore
-            df_image.to_csv(cfg.path.df_image_cand, index=False)
-        
-    df_image.to_csv(cfg.path.df_image_cand, index=False)
-
-    return df_image
-
-
-def scrape_image_seq(cfg: Config, download=False) -> pd.DataFrame:
-    df_image_seq = _get_image_seq_list(cfg)
-    df_image_seq_detail = _get_image_seq_detail(cfg)
+def fetch_image_seq(cfg: Config, download=False) -> pd.DataFrame:
+    image_fetcher = MapillaryImageFetcher(cfg)
+    df_image_ids_per_seq = image_fetcher.fetch_image_ids_per_seq(cfg)
+    print(f"Fetched an image-id list for each image sequence. Total sequences: {len(df_image_ids_per_seq)}")
+    df_image_seq = image_fetcher.fetch_image_seq(cfg)
+    print(f"Fetched {len(df_image_seq)} detail information for all images.")
     if download:
-        _download_image_seq(cfg)
-    return df_image_seq_detail
-
-
-def _get_image_seq_list(cfg: Config) -> pd.DataFrame:
-    scraper = ScrapeImage(cfg)
-    df_image = scraper.load_df_image()
-    df_image_seq = scraper.load_df_image_seq()
-
-    df_image = df_image.dropna(subset=['seq_id'])
-
-    # First get all the image sequences for the crossings
-    for i, seq_id in tqdm(enumerate(df_image['seq_id'].unique()), total=df_image['seq_id'].nunique()):
-        if seq_id in df_image_seq['seq_id'].unique():
-            continue
-        
-        resp = scraper.fetch_image_seq(seq_id)
-        seq = resp['data']
-        if len(resp.keys()) != 1:
-            raise ValueError(f"Unexpected response format (another key other than 'data') for sequence {seq_id}: {resp}")
-        if len(seq) == 0:
-            raise ValueError(f"seq length is 0 for sequence {seq_id}. This may indicate that the sequence has no images or that the sequence ID is invalid.")
-
-        data = [{'seq_id': seq_id, 'img_ids': [resp_img_id['id'] for resp_img_id in seq]}]
-        df_image_seq_temp = pd.DataFrame(data)
-        df_image_seq = pd.concat([df_image_seq, df_image_seq_temp], ignore_index=True)
-
-        if i % 10 == 0:
-            df_image_seq.to_csv(cfg.path.df_image_seq, index=False)
-    df_image_seq.to_csv(cfg.path.df_image_seq, index=False)
-
+        image_fetcher.download_image_seq(cfg)
+        print(f"Downloaded all images for each crossing and sequence.")
     return df_image_seq
-
-
-def _get_image_seq_detail(cfg: Config) -> pd.DataFrame:
-    scraper = ScrapeImage(cfg)
-    df_crossing = prepare_df_crossing(cfg)
-    df_image = scraper.load_df_image()
-    df_image_seq = scraper.load_df_image_seq()
-    df_image_seq_detail = scraper.load_df_image_seq_detail()
-
-    df_image = df_image.dropna(subset=['seq_id'])
-    df_image_gp = df_image.groupby(['crossing_id', 'seq_id'])
-    df_crossing_seq = df_image_gp.apply(lambda x: x.loc[x['dist'].idxmin()]).reset_index(drop=False) # for each crossing and sequence group, leave only an image with the minimum distance to the crossing, which is min of 'dist' column.
-
-    df_image_seq = df_image_seq.set_index('seq_id')
-    assert df_image_seq['img_ids'].str.len().max() <= 10**IMG_POS_ZFILL, \
-        f"The image position index (img_pos) will exceed the maximum number of digits allowed by IMG_POS_ZFILL={IMG_POS_ZFILL}. Please increase IMG_POS_ZFILL to accommodate the maximum sequence length."
-
-    for i, row in tqdm(df_crossing_seq.iterrows(), total=df_crossing_seq.shape[0]):
-        crossing_id = row['crossing_id']
-        seq_id = row['seq_id']
-        img_id = row['img_id']
-        xing_lat, xing_lon = df_crossing.loc[df_crossing['CROSSING'] == crossing_id, ['LATITUDE', 'LONGITUD']].values[0]
-        if not df_image_seq_detail[(df_image_seq_detail['crossing_id'] == crossing_id) & (df_image_seq_detail['seq_id'] == seq_id)].empty:
-            continue
-
-        img_ids = df_image_seq.loc[seq_id, 'img_ids']
-        try:
-            img_pos = img_ids.index(str(img_id)) # type: ignore
-        except:
-            img_pos = float('nan')
-            print(f'Warning: img_id {img_id} not found in the image sequence {seq_id} for crossing {crossing_id}. This may indicate that there is a mismatch.')
-
-        row['img_pos'] = img_pos
-        df_image_seq_detail_temp = pd.DataFrame(columns=df_image_seq_detail.columns)
-        df_image_seq_detail_temp = pd.concat([df_image_seq_detail_temp, row.to_frame().T])
-        if pd.isna(img_pos):
-            df_image_seq_detail = pd.concat([df_image_seq_detail, df_image_seq_detail_temp], ignore_index=True)
-            continue
-
-        search_config = {
-            'forward': {'within_boundary': True, 'pos_step': 1},
-            'backward': {'within_boundary': True, 'pos_step': -1}
-        }
-        for search_direction, config in search_config.items():
-            img_pos_temp = img_pos
-            while config['within_boundary']:
-                img_pos_temp += config['pos_step']
-                if img_pos_temp < 0 or img_pos_temp >= len(img_ids): # type: ignore
-                    break
-                img_id_temp = img_ids[img_pos_temp] # type: ignore
-                details = scraper.fetch_image_details(img_id_temp) # type: ignore
-                details['crossing_id'] = crossing_id
-                details = scraper.reformat_image_details(details, xing_lat, xing_lon)
-                details['img_pos'] = img_pos_temp
-
-                if details['dist'] > cfg.scrp.dist_thres_filter_img_seq:
-                    config['within_boundary'] = False
-                df_details_temp = pd.DataFrame([details], columns=df_image_seq_detail.columns)
-                if search_direction == 'forward':
-                    df_image_seq_detail_temp = pd.concat([df_image_seq_detail_temp, df_details_temp], ignore_index=True)
-                elif search_direction == 'backward':
-                    df_image_seq_detail_temp = pd.concat([df_details_temp, df_image_seq_detail_temp], ignore_index=True)
-        
-        df_image_seq_detail = pd.concat([df_image_seq_detail, df_image_seq_detail_temp], ignore_index=True)
-        if i % 10 == 0: # type: ignore
-            df_image_seq_detail.to_csv(cfg.path.df_image_seq_detail, index=False)
-    df_image_seq_detail.to_csv(cfg.path.df_image_seq_detail, index=False)
-
-    return df_image_seq_detail
-
-
-def _download_image_seq(cfg: Config):
-    scraper = ScrapeImage(cfg)
-    df_image_seq_detail = scraper.load_df_image_seq_detail()
-
-    df_image_dir_name = df_image_seq_detail.drop_duplicates(subset=['crossing_id', 'seq_id'], keep='first')
-    for i, row in tqdm(df_image_dir_name.iterrows(), total=df_image_dir_name.shape[0]):
-        crossing_id = row['crossing_id']
-        seq_id = row['seq_id']
-        img_id = as_int(row['img_id'])
-        if pd.isna(img_id):
-            continue
-        dp_output = pathlib.Path(os.path.join(cfg.path.dir_image_seq, crossing_id, seq_id))
-        if not dp_output.exists():
-            make_dir(dp_output) # type: ignore
-    
-    num_downloaded = 0
-    while True:
-        try:
-            for i, row in tqdm(df_image_seq_detail.iterrows(), total=df_image_seq_detail.shape[0]):
-                crossing_id = row['crossing_id']
-                seq_id = row['seq_id']
-                img_id = as_int(row['img_id'])
-                img_pos = str(as_int(row['img_pos'])).zfill(IMG_POS_ZFILL)
-                thumb_url = row["thumb_original_url"]
-                if pd.isna(img_id):
-                    continue
-                fp_output = pathlib.Path(os.path.join(cfg.path.dir_image_seq, crossing_id, seq_id, f"{img_pos}_{img_id}.jpg"))
-                if not fp_output.exists() and pd.notna(thumb_url):
-                    scraper.download_from_url(thumb_url, fp_output)
-                num_downloaded += 1
-        except:
-            time_to_sleep = 5
-            print(f"An error occurred during the download process. Retrying in {time_to_sleep} seconds...")
-            time.sleep(time_to_sleep)
-            continue
-        finally:
-            if num_downloaded == df_image_seq_detail.shape[0]:
-                print("All images have been downloaded successfully.")
-                break
 
 
 def __to_be_used():
@@ -443,11 +446,11 @@ def tentative():
         if df_seq_temp.shape[0] <= 1:
             continue
         
-        images = scraper.fetch_image_seq(seq_id)['data']
+        images = mapillary_client.request_image_seq(seq_id)['data']
         images = [image['id'] for image in images]
         # for image in tqdm(images, leave=False):
         #     img_id = image['id']
-        #     details = scraper.fetch_image_details(img_id)
+        #     details = mapillary_client.request_image_details(img_id)
         #     dist = ((row[['crossing_lon', 'crossing_lat']] - details['geometry']['coordinates'])**2).sum()**0.5
         #     if dist > cfg.scrp.bbox_offset * 2 or dist < cfg.scrp.bbox_offset / 2:
         #         continue
@@ -479,7 +482,7 @@ def tentative():
             if not os.path.exists(fp_img):
                 continue
             img = np.array(Image.open(fp_img).convert("RGB"))
-            view = scraper.extract_view(img, h_fov=90, yaw_deg=bearing, pitch_deg=0, out_hw=(720, 960))
+            view = mapillary_client.extract_view(img, h_fov=90, yaw_deg=bearing, pitch_deg=0, out_hw=(720, 960))
             out_img = Image.fromarray(view)
             dp_crossing_seq = os.path.join(cfg.path.dir_image_seq, crossing_id, seq_id)
             make_dir(dp_crossing_seq)
@@ -500,7 +503,7 @@ def tentative():
 
 
 def scrape_3D(cfg: Config) -> pd.DataFrame:
-    scraper = ScrapeImage(cfg)
+    mapillary_client = MapillaryImageFetcher(cfg)
     columns_df_3D = ['crossing_id', 'seq_id', 'img_pos', 'img_id', 'bearing', 'captured_at', 'dist', 'atomic_scale', 'merge_cc']
     columns_df_3D_add = ['sfm_id', 'sfm_url', 'mesh_id', 'mesh_url']
 
@@ -526,7 +529,7 @@ def scrape_3D(cfg: Config) -> pd.DataFrame:
         mesh_url = row['mesh_url']
         if sfm_url and mesh_url:
             continue
-        img_detail = scraper.fetch_image_details(img_id)
+        img_detail = mapillary_client.request_image_details(img_id)
         sfm_cluster = img_detail['sfm_cluster']
         mesh = img_detail['mesh']
         df_sfm_mesh.loc[i, 'sfm_id'] = sfm_cluster['id'] if 'id' in sfm_cluster else None # type: ignore
@@ -550,10 +553,10 @@ def scrape_3D(cfg: Config) -> pd.DataFrame:
         mesh_url = row['mesh_url']
         fp_sfm = pathlib.Path(os.path.join(cfg.path.dir_sfm, str(sfm_id)))
         if not fp_sfm.exists() and pd.notna(sfm_url):
-            scraper.download_from_url(sfm_url, fp_sfm)
+            mapillary_client.download_from_url(sfm_url, fp_sfm)
         fp_mesh = pathlib.Path(os.path.join(cfg.path.dir_mesh, str(mesh_id)))
         if not fp_mesh.exists() and pd.notna(mesh_url):
-            scraper.download_from_url(mesh_url, fp_mesh)
+            mapillary_client.download_from_url(mesh_url, fp_mesh)
     
     return df_3D
 

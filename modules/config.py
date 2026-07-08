@@ -16,8 +16,8 @@ FN_DICT_API_KEY: Final[str] = 'dict_api_key.json'
 
 FN_DF_CROSSING: Final[str] = '251009 NTAD_Railroad_Grade_Crossings_1739202960140128164.csv'
 FN_DF_IMAGE_CAND: Final[str] = 'df_image_cand.csv'
+FN_DF_IMAGE_IDS_PER_SEQ: Final[str] = 'df_image_ids_per_seq.csv'
 FN_DF_IMAGE_SEQ: Final[str] = 'df_image_seq.csv'
-FN_DF_IMAGE_SEQ_DETAIL: Final[str] = 'df_image_seq_detail.csv'
 
 # configurations
 TARGET_STATES: Final[tuple[str, ...]] = ('California',)
@@ -117,8 +117,8 @@ class PathConfig:
     df_crossing: str
 
     df_image_cand: str
+    df_image_ids_per_seq: str
     df_image_seq: str
-    df_image_seq_detail: str
 
 
 @dataclass()
@@ -150,8 +150,8 @@ def _compute_paths() -> PathConfig:
         dict_api_key=os.path.join(DN_DATA_ROOT, FN_DICT_API_KEY),
         
         df_image_cand=os.path.join(dp_mapillary, FN_DF_IMAGE_CAND),
+        df_image_ids_per_seq=os.path.join(dp_mapillary, FN_DF_IMAGE_IDS_PER_SEQ),
         df_image_seq=os.path.join(dp_mapillary, FN_DF_IMAGE_SEQ),
-        df_image_seq_detail=os.path.join(dp_mapillary, FN_DF_IMAGE_SEQ_DETAIL),
     )
 
 def _load_api_key(path_cfg: PathConfig) -> APIkeyConfig:

@@ -1,6 +1,6 @@
 import os
 from modules import (
-    build_config, scrape_image, scrape_image_seq, preprocess_image, augment_image,
+    build_config, fetch_image_cand, fetch_image_seq, preprocess_image, augment_image,
     scrape_3D
 )
 
@@ -13,8 +13,8 @@ print('------------Configuration DONE!!------------')
 
 
 ############### scrape crossing images from mapillary (ONLY ONE-TIME TASK)
-df_image = scrape_image(cfg)
-df_image_seq = scrape_image_seq(cfg, download=True)
+df_image = fetch_image_cand(cfg)
+df_image_seq = fetch_image_seq(cfg, download=True)
 
 print('------------Scraping Images DONE!!------------')
 
