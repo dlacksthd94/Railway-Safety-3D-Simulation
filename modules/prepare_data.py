@@ -10,10 +10,10 @@ import platform
 import copy
 import pathlib
 from .config import Config
-from .utils import (as_int, as_float, remove_dir, make_dir, 
+from .utils import (as_int, as_float, remove_dir, make_dir, make_dirs,
                     prepare_df_crossing, 
                     prepare_df_image_cand, prepare_df_image_ids_per_seq, prepare_df_image_seq,
-                    prepare_df_3D)
+                    )
 from pprint import pprint
 from scipy.spatial.distance import cdist
 import io
@@ -22,7 +22,8 @@ import py360convert
 import math
 from datetime import datetime
 import ast
-
+import zlib
+import json
 
 IMG_POS_ZFILL = 5
 
@@ -92,16 +93,6 @@ class MapillaryAPIClient:
         resp.raise_for_status()
         return resp.json()
 
-    def download_from_url(self, url: str, out_path: pathlib.Path):
-        """
-        Download the content and save it locally.
-        """
-        resp = requests.get(url)
-        resp.raise_for_status()
-
-        out_path.write_bytes(resp.content)
-        return out_path
-
 
 class MapillaryImageFetcher:
     def __init__(self, cfg):
@@ -148,14 +139,14 @@ class MapillaryImageFetcher:
             df_image_seq.to_csv(self.cfg.path.df_image_seq, index=False)
         return df_image_seq
     
-    def fetch_image_cand_per_crossing(self, cfg: Config) -> pd.DataFrame:
-        df_crossing = prepare_df_crossing(cfg)
+    def fetch_image_cands_per_crossing(self) -> pd.DataFrame:
+        df_crossing = prepare_df_crossing(self.cfg)
         df_image_cand = self.load_df_image_cand()
         for i, row in tqdm(df_crossing[['CROSSING', 'LATITUDE', 'LONGITUD']].iterrows(), total=df_crossing.shape[0]):
             crossing_id, xing_lat, xing_lon = row
             if crossing_id in df_image_cand['crossing_id'].values:
                 continue
-            bbox_exact_match = f"{xing_lon - cfg.scrp.bbox_offset},{xing_lat - cfg.scrp.bbox_offset},{xing_lon + cfg.scrp.bbox_offset},{xing_lat + cfg.scrp.bbox_offset}"
+            bbox_exact_match = f"{xing_lon - self.cfg.scrp.bbox_offset},{xing_lat - self.cfg.scrp.bbox_offset},{xing_lon + self.cfg.scrp.bbox_offset},{xing_lat + self.cfg.scrp.bbox_offset}"
             imgs = self.mapillary_client.request_images(bbox_exact_match)
 
             details_concat = [{'crossing_id': crossing_id}]
@@ -172,13 +163,13 @@ class MapillaryImageFetcher:
             df_image_cand = pd.concat([df_image_cand, df_image_temp], ignore_index=True)
             
             if i % 10 == 0: # type: ignore
-                df_image_cand.to_csv(cfg.path.df_image_cand, index=False)
+                df_image_cand.to_csv(self.cfg.path.df_image_cand, index=False)
             
-        df_image_cand.to_csv(cfg.path.df_image_cand, index=False)
+        df_image_cand.to_csv(self.cfg.path.df_image_cand, index=False) # finally save the complete df
 
         return df_image_cand
     
-    def fetch_image_ids_per_seq(self, cfg: Config) -> pd.DataFrame:
+    def fetch_image_ids_per_seq(self) -> pd.DataFrame:
         df_image_cand = self.load_df_image_cand()
         df_image_ids_per_seq = self.load_df_image_ids_per_seq()
 
@@ -201,13 +192,13 @@ class MapillaryImageFetcher:
             df_image_ids_per_seq = pd.concat([df_image_ids_per_seq, df_image_ids_per_seq_temp], ignore_index=True)
 
             if i % 10 == 0:
-                df_image_ids_per_seq.to_csv(cfg.path.df_image_ids_per_seq, index=False)
-        df_image_ids_per_seq.to_csv(cfg.path.df_image_ids_per_seq, index=False)
+                df_image_ids_per_seq.to_csv(self.cfg.path.df_image_ids_per_seq, index=False)
+        df_image_ids_per_seq.to_csv(self.cfg.path.df_image_ids_per_seq, index=False)
 
         return df_image_ids_per_seq
 
-    def fetch_image_seq(self, cfg: Config) -> pd.DataFrame:
-        df_crossing = prepare_df_crossing(cfg)
+    def fetch_image_seqs(self) -> pd.DataFrame:
+        df_crossing = prepare_df_crossing(self.cfg)
         df_image_cand = self.load_df_image_cand()
         df_image_ids_per_seq = self.load_df_image_ids_per_seq()
         df_image_seq = self.load_df_image_seq()
@@ -258,7 +249,7 @@ class MapillaryImageFetcher:
                     details = self.reformat_image_details(details, xing_lat, xing_lon)
                     details['img_pos'] = img_pos_temp
 
-                    if details['dist'] > cfg.scrp.dist_thres_filter_img_seq:
+                    if details['dist'] > self.cfg.scrp.dist_thres_filter_img_seq:
                         config['within_boundary'] = False
                     df_details_temp = pd.DataFrame([details], columns=df_image_seq.columns)
                     if search_direction == 'forward':
@@ -270,27 +261,27 @@ class MapillaryImageFetcher:
             
             df_image_seq = pd.concat([df_image_seq, df_image_seq_temp], ignore_index=True)
             if i % 10 == 0: # type: ignore
-                df_image_seq.to_csv(cfg.path.df_image_seq, index=False)
-        df_image_seq.to_csv(cfg.path.df_image_seq, index=False)
+                df_image_seq.to_csv(self.cfg.path.df_image_seq, index=False)
+        df_image_seq.to_csv(self.cfg.path.df_image_seq, index=False)
 
         return df_image_seq
+    
+    def download_image(self, url: str, out_path: pathlib.Path):
+        """
+        Download the content and save it locally.
+        """
+        resp = requests.get(url)
+        resp.raise_for_status()
 
+        out_path.write_bytes(resp.content)
 
-    def download_image_seq(self, cfg: Config):
+    def download_image_seqs(self):
         df_image_seq = self.load_df_image_seq()
 
         # create directories for each crossing and sequence
-        df_image_dir_name = df_image_seq.drop_duplicates(subset=['crossing_id', 'seq_id'], keep='first')
-        for i, row in df_image_dir_name.iterrows():
-            crossing_id = row['crossing_id']
-            seq_id = row['seq_id']
-            img_id = as_int(row['img_id'])
-            if pd.isna(img_id):
-                continue
-            dp_output = pathlib.Path(os.path.join(cfg.path.dir_image_seq, crossing_id, seq_id))
-            if not dp_output.exists():
-                make_dir(dp_output) # type: ignore
-        
+        df_image_dir_name = df_image_seq.drop_duplicates(subset=['crossing_id', 'seq_id'], keep='first')[['crossing_id', 'seq_id']]
+        make_dirs(df_image_dir_name, self.cfg.path.dir_image_seq)
+
         # start downloading images
         all_downloaded = False
         while not all_downloaded:
@@ -303,9 +294,9 @@ class MapillaryImageFetcher:
                     thumb_url = row["thumb_original_url"]
                     if pd.isna(img_id):
                         continue
-                    fp_output = pathlib.Path(os.path.join(cfg.path.dir_image_seq, crossing_id, seq_id, f"{img_pos}_{img_id}.jpg"))
+                    fp_output = pathlib.Path(os.path.join(self.cfg.path.dir_image_seq, crossing_id, seq_id, f"{img_pos}_{img_id}.jpg"))
                     if not fp_output.exists() and pd.notna(thumb_url):
-                        self.mapillary_client.download_from_url(thumb_url, fp_output)
+                        self.download_image(thumb_url, fp_output)
                 all_downloaded = True
             except:
                 time_to_sleep = 10
@@ -378,23 +369,70 @@ class MapillaryImageFetcher:
         return pers
 
 
+class MapillarySfMFetcher:
+    def __init__(self, cfg):
+        self.cfg = cfg
+            
+    def download_SfM(self, sfm_url: str, out_path: pathlib.Path):
+        """
+        Download the SfM data from Mapillary and save it as a JSON file.
+        """
+        resp = requests.get(sfm_url)
+        resp.raise_for_status()
+
+        bin_data = resp.content
+        json_str = zlib.decompress(bin_data)  # data is compressed with zlib
+        json_SfM = json.loads(json_str)
+        
+        out_path.write_text(json.dumps(json_SfM, indent=4))
+
+    def fetch_SfM_per_seq(self):
+        df_image_seq = prepare_df_image_seq(self.cfg)
+        df_image_seq = df_image_seq.dropna(subset=['sfm_cluster'])
+        assert df_image_seq['sfm_cluster'].apply(lambda x: len(x)).max() <= 2
+        df_image_seq['sfm_id'] = df_image_seq['sfm_cluster'].apply(lambda x: x['id'])
+        df_image_seq['sfm_url'] = df_image_seq['sfm_cluster'].apply(lambda x: x['url'] if 'url' in x else float('nan'))
+        df_sfm_seq = df_image_seq[['crossing_id', 'seq_id', 'sfm_id', 'sfm_url']]
+
+        # create dirs
+        df_sfm_seq_dir_name = df_sfm_seq.drop_duplicates(subset=['crossing_id', 'seq_id'], keep='first')[['crossing_id', 'seq_id']]
+        make_dirs(df_sfm_seq_dir_name, self.cfg.path.dir_SfM_seq)
+        
+        # start downloading SfM zlib files
+        for i, row in tqdm(df_sfm_seq.iterrows(), total=df_sfm_seq.shape[0]):
+            crossing_id = row['crossing_id']
+            seq_id = row['seq_id']
+            sfm_id = row['sfm_id']
+            sfm_url = row['sfm_url']
+            if pd.isna(sfm_url):
+                continue
+            fp_output = pathlib.Path(os.path.join(self.cfg.path.dir_SfM_seq, crossing_id, seq_id, f"{sfm_id}.json"))
+            if not fp_output.exists():
+                self.download_SfM(sfm_url, fp_output)
+                
+
 def fetch_image_cand(cfg: Config) -> pd.DataFrame:
     image_fetcher = MapillaryImageFetcher(cfg)
-    df_image_cand = image_fetcher.fetch_image_cand_per_crossing(cfg)
+    df_image_cand = image_fetcher.fetch_image_cands_per_crossing()
     print(f"Fetched {len(df_image_cand)} images within bounding boxes around {df_image_cand['crossing_id'].nunique()} crossings.")
     return df_image_cand
 
 
 def fetch_image_seq(cfg: Config, download=False) -> pd.DataFrame:
     image_fetcher = MapillaryImageFetcher(cfg)
-    df_image_ids_per_seq = image_fetcher.fetch_image_ids_per_seq(cfg)
+    df_image_ids_per_seq = image_fetcher.fetch_image_ids_per_seq()
     print(f"Fetched an image-id list for each image sequence. Total sequences: {len(df_image_ids_per_seq)}")
-    df_image_seq = image_fetcher.fetch_image_seq(cfg)
+    df_image_seq = image_fetcher.fetch_image_seqs()
     print(f"Fetched {len(df_image_seq)} detail information for all images.")
     if download:
-        image_fetcher.download_image_seq(cfg)
+        image_fetcher.download_image_seqs()
         print(f"Downloaded all images for each crossing and sequence.")
     return df_image_seq
+
+
+def fetch_SfM(cfg: Config):
+    sfm_fetcher = MapillarySfMFetcher(cfg)
+    sfm_fetcher.fetch_SfM_per_seq()
 
 
 def __to_be_used():
@@ -446,11 +484,11 @@ def tentative():
         if df_seq_temp.shape[0] <= 1:
             continue
         
-        images = mapillary_client.request_image_seq(seq_id)['data']
+        images = mapillary_image_client.request_image_seq(seq_id)['data']
         images = [image['id'] for image in images]
         # for image in tqdm(images, leave=False):
         #     img_id = image['id']
-        #     details = mapillary_client.request_image_details(img_id)
+        #     details = mapillary_image_client.request_image_details(img_id)
         #     dist = ((row[['crossing_lon', 'crossing_lat']] - details['geometry']['coordinates'])**2).sum()**0.5
         #     if dist > cfg.scrp.bbox_offset * 2 or dist < cfg.scrp.bbox_offset / 2:
         #         continue
@@ -482,7 +520,7 @@ def tentative():
             if not os.path.exists(fp_img):
                 continue
             img = np.array(Image.open(fp_img).convert("RGB"))
-            view = mapillary_client.extract_view(img, h_fov=90, yaw_deg=bearing, pitch_deg=0, out_hw=(720, 960))
+            view = mapillary_image_client.extract_view(img, h_fov=90, yaw_deg=bearing, pitch_deg=0, out_hw=(720, 960))
             out_img = Image.fromarray(view)
             dp_crossing_seq = os.path.join(cfg.path.dir_image_seq, crossing_id, seq_id)
             make_dir(dp_crossing_seq)
@@ -503,7 +541,7 @@ def tentative():
 
 
 def scrape_3D(cfg: Config) -> pd.DataFrame:
-    mapillary_client = MapillaryImageFetcher(cfg)
+    mapillary_image_client = MapillaryImageFetcher(cfg)
     columns_df_3D = ['crossing_id', 'seq_id', 'img_pos', 'img_id', 'bearing', 'captured_at', 'dist', 'atomic_scale', 'merge_cc']
     columns_df_3D_add = ['sfm_id', 'sfm_url', 'mesh_id', 'mesh_url']
 
@@ -529,7 +567,7 @@ def scrape_3D(cfg: Config) -> pd.DataFrame:
         mesh_url = row['mesh_url']
         if sfm_url and mesh_url:
             continue
-        img_detail = mapillary_client.request_image_details(img_id)
+        img_detail = mapillary_image_client.request_image_details(img_id)
         sfm_cluster = img_detail['sfm_cluster']
         mesh = img_detail['mesh']
         df_sfm_mesh.loc[i, 'sfm_id'] = sfm_cluster['id'] if 'id' in sfm_cluster else None # type: ignore
@@ -553,10 +591,10 @@ def scrape_3D(cfg: Config) -> pd.DataFrame:
         mesh_url = row['mesh_url']
         fp_sfm = pathlib.Path(os.path.join(cfg.path.dir_sfm, str(sfm_id)))
         if not fp_sfm.exists() and pd.notna(sfm_url):
-            mapillary_client.download_from_url(sfm_url, fp_sfm)
+            mapillary_image_client.download_image_from_url(sfm_url, fp_sfm)
         fp_mesh = pathlib.Path(os.path.join(cfg.path.dir_mesh, str(mesh_id)))
         if not fp_mesh.exists() and pd.notna(mesh_url):
-            mapillary_client.download_from_url(mesh_url, fp_mesh)
+            mapillary_image_client.download_image_from_url(mesh_url, fp_mesh)
     
     return df_3D
 

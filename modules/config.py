@@ -10,6 +10,7 @@ from .utils import make_dir, remove_dir, sanitize_model_path
 DN_DATA_ROOT: Final[str] = "/data2/clim090/railway/data"
 DN_MAPILLARY: Final[str] = 'mapillary'
 DN_IMAGE_SEQ: Final[str] = 'image_seq'
+DN_SFM_SEQ: Final[str] = 'SfM_seq'
 
 # files
 FN_DICT_API_KEY: Final[str] = 'dict_api_key.json'
@@ -110,6 +111,7 @@ class ScrapingConfig:
 class PathConfig:
     # generated directories
     dir_image_seq: str
+    dir_SfM_seq: str
     
     # files
     dict_api_key: str
@@ -141,11 +143,14 @@ def _compute_paths() -> PathConfig:
 
     dp_image_seq = os.path.join(dp_mapillary, DN_IMAGE_SEQ)
     make_dir(dp_image_seq)
+    dp_SfM_seq = os.path.join(dp_mapillary, DN_SFM_SEQ)
+    make_dir(dp_SfM_seq)
     
     return PathConfig(
         df_crossing=os.path.join(DN_DATA_ROOT, FN_DF_CROSSING),
         
         dir_image_seq=dp_image_seq,
+        dir_SfM_seq=dp_SfM_seq,
         
         dict_api_key=os.path.join(DN_DATA_ROOT, FN_DICT_API_KEY),
         

@@ -1,7 +1,7 @@
 import os
 from modules import (
-    build_config, fetch_image_cand, fetch_image_seq, preprocess_image, augment_image,
-    scrape_3D
+    build_config, fetch_image_cand, fetch_image_seq, fetch_SfM,
+    preprocess_image, augment_image,
 )
 
 print('###########################################################################')
@@ -12,11 +12,11 @@ cfg = build_config()
 print('------------Configuration DONE!!------------')
 
 
-############### scrape crossing images from mapillary (ONLY ONE-TIME TASK)
-df_image = fetch_image_cand(cfg)
-df_image_seq = fetch_image_seq(cfg, download=True)
+# ############### fetch crossing images from mapillary (ONLY ONE-TIME TASK)
+# df_image = fetch_image_cand(cfg)
+# df_image_seq = fetch_image_seq(cfg, download=True)
 
-print('------------Scraping Images DONE!!------------')
+# print('------------Fetching Images DONE!!------------')
 
 
 ############### preprocess images (ONLY ONE-TIME TASK)
@@ -39,8 +39,8 @@ print('------------Scraping Images DONE!!------------')
 # print('------------Augmenting Images DONE!!------------')
 
 
-# ############### scrape 3D reconstruction from mapillary (ONLY ONE-TIME TASK)
-# df_3D = scrape_3D(cfg)
+############### fetch 3D reconstruction from mapillary (ONLY ONE-TIME TASK)
+df_SfM = fetch_SfM(cfg)
 
 
 ############### 

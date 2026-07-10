@@ -1,5 +1,6 @@
 import os
 import time
+import pathlib
 from transformers import pipeline
 import json
 import json5
@@ -16,6 +17,13 @@ def make_dir(path: str) -> None:
 def remove_dir(path: str) -> None:
     if os.path.exists(path):
         shutil.rmtree(path)
+
+
+def make_dirs(df_dir_name: pd.DataFrame, output_root: str):
+    for _, row in df_dir_name.iterrows():
+        rel_path = os.path.join(*row.values)
+        dp_output = pathlib.Path(os.path.join(output_root, rel_path))
+        make_dir(dp_output) # type: ignore
 
 
 def sanitize_model_path(model_path: str) -> str:
@@ -212,6 +220,12 @@ def prepare_df_image_ids_per_seq(cfg):
 
 def prepare_df_image_seq(cfg):
     df_image_seq = pd.read_csv(cfg.path.df_image_seq)
+    df_image_seq['computed_rotation'] = df_image_seq['computed_rotation'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
+    df_image_seq['mesh'] = df_image_seq['mesh'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
+    df_image_seq['sfm_cluster'] = df_image_seq['sfm_cluster'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
+    # df_image_seq['detections'] = df_image_seq['detections'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
+    df_image_seq['creator'] = df_image_seq['creator'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
+    df_image_seq['camera_parameters'] = df_image_seq['camera_parameters'].apply(lambda x: ast.literal_eval(x) if pd.notna(x) else x)
     return df_image_seq
 
 
@@ -233,11 +247,6 @@ def prepare_df_match(cfg):
     df_match = df_match.iloc[:, :idx_content_match + 1] # type: ignore
     assert df_match['news_id'].is_unique, '==========Warning: News is not unique!!!==========='
     return df_match
-
-
-def prepare_df_3D(cfg):
-    df_3D = pd.read_csv(cfg.path.df_3D, parse_dates=['captured_at'])
-    return df_3D
 
 
 def prepare_dict_col_indexing(cfg):
