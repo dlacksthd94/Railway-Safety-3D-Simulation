@@ -393,6 +393,8 @@ class MapillarySfMFetcher:
         df_image_seq['sfm_id'] = df_image_seq['sfm_cluster'].apply(lambda x: x['id'])
         df_image_seq['sfm_url'] = df_image_seq['sfm_cluster'].apply(lambda x: x['url'] if 'url' in x else float('nan'))
         df_sfm_seq = df_image_seq[['crossing_id', 'seq_id', 'sfm_id', 'sfm_url']]
+        df_sfm_seq = df_sfm_seq.dropna(subset=['sfm_url'])
+        df_sfm_seq = df_sfm_seq.drop_duplicates(subset=['crossing_id', 'seq_id', 'sfm_id'])
 
         # create dirs
         df_sfm_seq_dir_name = df_sfm_seq.drop_duplicates(subset=['crossing_id', 'seq_id'], keep='first')[['crossing_id', 'seq_id']]
@@ -409,7 +411,79 @@ class MapillarySfMFetcher:
             fp_output = pathlib.Path(os.path.join(self.cfg.path.dir_SfM_seq, crossing_id, seq_id, f"{sfm_id}.json"))
             if not fp_output.exists():
                 self.download_SfM(sfm_url, fp_output)
-                
+
+
+class MapillarySfMExaminer:        
+    camera_fields = {
+        'perspective': ['projection_type', 'width', 'height', 'focal', 'k1', 'k2'],
+        'fisheye': ['projection_type', 'width', 'height', 'focal', 'k1', 'k2'],
+        'spherical': ['projection_type', 'width', 'height'],
+        'equirectangular': ['projection_type', 'width', 'height'],
+        'fisheye62': ['projection_type', 'width', 'height', 'focal_x', 'focal_y', 'c_x', 'c_y', 'k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'p1', 'p2'],
+        'brown': ['projection_type', 'width', 'height', 'focal_x', 'focal_y', 'c_x', 'c_y', 'k1', 'k2', 'k3', 'p1', 'p2']
+    }
+
+    shot_fields = {
+        1: ['rotation', 'translation', 'camera', 'orientation', 'capture_time', 'gps_dop', 'gps_position', 'compass', 'skey', 'vertices', 'faces', 'scale', 'covariance', 'merge_cc'],
+        2: ['rotation', 'translation', 'camera', 'orientation', 'capture_time', 'gps_dop', 'gps_position', 'accelerometer', 'compass', 'skey', 'scale', 'merge_cc'],
+    }
+
+    point_fields = ['color', 'coordinates']
+
+    def __init__(self, cfg: Config):
+        self.cfg = cfg
+    
+    def assert_camera_fields(self, cameras):
+        for camera_id, camera in cameras.items():
+            projection_type = camera['projection_type']
+            if projection_type in self.camera_fields:
+                assert set(camera.keys()) == set(self.camera_fields[projection_type]), f"Camera has unexpected fields: {camera.keys()} vs {self.camera_fields[projection_type]}"
+            else:
+                raise ValueError(f"Unknown projection type {projection_type} for camera {camera}")
+
+    def assert_shot_fields(self, shots):
+        raise NotImplementedError("assert_shot_fields is not fully implemented yet")
+        field_types = []
+        for shot_id, shot in shots.items():
+            if set(shot.keys()) == set(self.shot_fields[1]):
+                field_types.append(1)
+            elif set(shot.keys()) == set(self.shot_fields[2]):
+                field_types.append(2)
+            elif 'compass' not in shot and 'skey' not in shot:
+                print()
+                print(f"Shot missing 'compass' and 'skey': {shot}")
+                continue
+            elif 'accelerometer' not in shot and 'compass' not in shot and 'scale' not in shot and 'merge_cc' not in shot:
+                print()
+                print(f"Shot missing 'accelerometer', 'compass', 'scale', and 'merge_cc': {shot}")
+                continue
+            else:
+                raise ValueError(f"Shot has unexpected fields: {shot.keys()} vs {self.shot_fields[1]} or {self.shot_fields[2]}")
+            
+            if len(set(field_types)) > 1:
+                raise ValueError(f"Shots have mixed field types: {field_types}")
+            
+            assert set(shot['compass']) == {'angle', 'accuracy'}, f"Compass field has unexpected keys: {shot['compass'].keys()}"
+        
+        df_shots = pd.DataFrame.from_dict(shots, orient='index').reset_index(names='shot_id')
+        assert (df_shots[['rotation', 'translation']].map(len) == 3).all().all(), "Rotation or translation field does not have length 3 for all shots"
+        # assert df_shots['camera'].nunique() == 1, "Expected all shots to have the same camera"
+        assert df_shots['orientation'].nunique() == 1, "Expected all shots to have the same orientation"
+        # assert df_shots['gps_dop'].nunique() == 1, "Expected all shots to have the same gps_dop"
+        assert (df_shots['gps_position'].str.len() == 3).all(), "Expected all shots to have gps_position of length 3"
+        # assert df_shots['skey'].nunique() == 1, "Expected all shots to have the same skey"
+        if field_types.count(1) > 0 and field_types.count(2) == 0:
+            assert (df_shots[['vertices', 'faces', 'covariance']] == [[], [], []]).all().all(), "Expected all shots to have empty vertices, faces, and covariance"
+        # df_shots['scale']
+        # df_shots['merge_cc']
+
+    def assert_point_fields(self, points):
+        if points == {}:
+            pass
+        else:
+            df_points = pd.DataFrame.from_dict(points, orient='index').reset_index(names='point_id')
+            assert (df_points[self.point_fields].map(len) == 3).all().all(), "Expected all points to have color and coordinates of length 3"
+
 
 def fetch_image_cand(cfg: Config) -> pd.DataFrame:
     image_fetcher = MapillaryImageFetcher(cfg)
@@ -433,6 +507,32 @@ def fetch_image_seq(cfg: Config, download=False) -> pd.DataFrame:
 def fetch_SfM(cfg: Config):
     sfm_fetcher = MapillarySfMFetcher(cfg)
     sfm_fetcher.fetch_SfM_per_seq()
+    print(f"Downloaded SfM data for all sequences.")
+
+
+def examine_SfM(cfg: Config):
+    sfm_examiner = MapillarySfMExaminer(cfg)
+    STARTING_POINT = 0
+    list_crossing = os.listdir(cfg.path.dir_SfM_seq)
+    for i, crossing in enumerate(tqdm(list_crossing, desc="Crossings")):
+        if i < STARTING_POINT:
+            continue
+        list_seq = os.listdir(os.path.join(cfg.path.dir_SfM_seq, crossing))
+        for seq in tqdm(list_seq, desc="Sequences", leave=False):
+            list_SfM = os.listdir(os.path.join(cfg.path.dir_SfM_seq, crossing, seq))
+            for SfM in tqdm(list_SfM, desc="SfM Clusters", leave=False):
+                path_SfM_json = os.path.join(cfg.path.dir_SfM_seq, crossing, seq, SfM)
+                with open(path_SfM_json, 'r') as f:
+                    SfM_json = json.load(f)
+                    assert len(SfM_json) == 1, f"Expected 1 SfM cluster, but got {len(SfM_json)}"
+                    SfM_data = SfM_json[0]
+                    cameras = SfM_data['cameras']
+                    shots = SfM_data['shots']
+                    points = SfM_data['points']
+                    
+                    sfm_examiner.assert_camera_fields(cameras)
+                    # sfm_examiner.assert_shot_fields(shots)
+                    sfm_examiner.assert_point_fields(points)
 
 
 def __to_be_used():
