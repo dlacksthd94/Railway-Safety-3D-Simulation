@@ -26,4 +26,4 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 pip install transformers accelerate bitsandbytes # for labeling news & populating the report form
 pip install sentencepiece # for running VLMs from Hugging Face
 pip install py360convert ultralytics diffusers peft # for image preprocessing
-pip install open3d # for 3d reconstruction
+pip install open3d plotly gsplat # for 3d reconstruction

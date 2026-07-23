@@ -1,7 +1,7 @@
 import os
 from modules import (
     build_config, fetch_image_cand, fetch_image_seq, fetch_SfM, examine_SfM,
-    preprocess_image, augment_image,
+    preprocess_image, augment_image, visualize_SfM
 )
 
 print('###########################################################################')
@@ -19,9 +19,10 @@ print('------------Configuration DONE!!------------')
 # print('------------Fetching Images DONE!!------------')
 
 
-############### fetch 3D reconstruction from mapillary (ONLY ONE-TIME TASK)
+############### fetch SfM from mapillary (ONLY ONE-TIME TASK)
 # fetch_SfM(cfg)
-examine_SfM(cfg)
+# examine_SfM(cfg)
+visualize_SfM(cfg, crossing_id='753180E', seq_id='T1DxArocIfbQLG4MHEmSsd', sfm_id='3269502816551910')
 print('------------Fetching SfM DONE!!------------')
 
 

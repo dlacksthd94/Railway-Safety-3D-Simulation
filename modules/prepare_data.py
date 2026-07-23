@@ -24,6 +24,10 @@ from datetime import datetime
 import ast
 import zlib
 import json
+import open3d as o3d
+import webbrowser
+import plotly.graph_objects as go
+
 
 IMG_POS_ZFILL = 5
 
@@ -485,6 +489,64 @@ class MapillarySfMExaminer:
             assert (df_points[self.point_fields].map(len) == 3).all().all(), "Expected all points to have color and coordinates of length 3"
 
 
+class MapillarySfMVisualizer:
+    def __init__(self, cfg: Config, points: List[Dict[str, List[float]]]):
+        self.cfg = cfg
+        self.points = points
+        self.point_ids = None
+        self.coords = None
+        self.colors = None
+        
+        self.preprocess()
+        # self._set_environment_variables()
+    
+    def preprocess(self):
+        df_points = pd.DataFrame.from_dict(self.points, orient='index').reset_index(names='point_id')
+        
+        point_ids = df_points['point_id'].to_numpy()
+        coords = np.array(df_points['coordinates'].to_list())
+        colors = np.array(df_points['color'].to_list())
+
+        z_scores = np.abs((coords - coords.mean(axis=0)) / coords.std(axis=0))
+        mask = (z_scores < 3).all(axis=1)
+        
+        self.point_ids = point_ids[mask]
+        self.coords = coords[mask]
+        self.colors = colors[mask]
+        
+    
+    def _set_environment_variables(self):
+        os.environ["EGL_PLATFORM"] = "surfaceless"
+        os.environ["WEBRTC_IP"] = "127.0.0.1"
+        os.environ["WEBRTC_PORT"] = "8888"
+    
+    def visualize(self):
+        color_strings = [f"rgb({r},{g},{b})" for r, g, b in self.colors]
+
+        # Create the 3D Scatter plot
+        fig = go.Figure(data=[go.Scatter3d(
+            x=self.coords[:, 0],
+            y=self.coords[:, 1],
+            z=self.coords[:, 2],
+            mode='markers',
+            text=self.point_ids,            # Assign the labels here
+            hoverinfo='text+x+y+z',
+            marker=dict(
+                size=3,               # Adjust point size
+                color=color_strings,  # Apply custom point colors
+                opacity=0.8
+            )
+        )])
+
+        # Adjust overall layout
+        fig.update_layout(
+            margin=dict(l=0, r=0, b=0, t=0),
+            scene=dict(aspectmode='data') # Prevents stretching of axes
+        )
+
+        # Force the plot to open in your browser
+        fig.show(renderer="browser")
+
 def fetch_image_cand(cfg: Config) -> pd.DataFrame:
     image_fetcher = MapillaryImageFetcher(cfg)
     df_image_cand = image_fetcher.fetch_image_cands_per_crossing()
@@ -533,6 +595,33 @@ def examine_SfM(cfg: Config):
                     sfm_examiner.assert_camera_fields(cameras)
                     # sfm_examiner.assert_shot_fields(shots)
                     sfm_examiner.assert_point_fields(points)
+
+
+def visualize_SfM(cfg: Config, crossing_id, seq_id, sfm_id):
+    # df_image_seq = prepare_df_image_seq(cfg)
+    # df_image_seq['sfm_id'] = df_image_seq['sfm_cluster'].apply(lambda x: x['id'] if pd.notna(x) else float('nan'))
+    # df_sfm = df_image_seq[['crossing_id', 'seq_id', 'sfm_id', 'img_lon', 'img_lat']]
+    # df_sfm = df_sfm.dropna(subset=['sfm_id', 'seq_id'], how='any')
+    # df_sfm = df_sfm.drop_duplicates(subset=['crossing_id', 'seq_id', 'sfm_id'])
+
+    # crossing_id, seq_id, sfm_id, img_lon, img_lat = df_sfm.sample(1).iloc[0]
+    path_SfM_json = os.path.join(cfg.path.dir_SfM_seq, crossing_id, seq_id, f'{str(int(sfm_id))}.json')
+    if not os.path.exists(path_SfM_json):
+        raise FileNotFoundError(f"SfM JSON file not found: {path_SfM_json}")
+    with open(path_SfM_json, 'r') as f:
+        SfM_json = json.load(f)
+        assert len(SfM_json) == 1, f"Expected 1 SfM cluster, but got {len(SfM_json)}"
+    SfM_data = SfM_json[0]
+
+    # cameras = SfM_data['cameras']
+    # shots = SfM_data['shots']
+    points = SfM_data['points']
+    # points = {f'{sfm_id}_{point_id}': point for point_id, point in points.items()}
+    if len(points) < 10000:
+        raise ValueError(f"Insufficient points in SfM cluster: {len(points)}")
+
+    sfm_visualizer = MapillarySfMVisualizer(cfg, points)
+    sfm_visualizer.visualize()
 
 
 def __to_be_used():
